@@ -3396,15 +3396,14 @@ static bool load_vault_from_disk(const std::string& path, const std::string& pas
     // saved by this build or newer), verifying the stamp is a definitive wrong-key
     // test. Covers the gap in the "did anything decrypt?" check below, which lets
     // wrong-password unlock succeed when the vault happens to be empty.
+    const std::vector<uint8_t> kc_blob = vault_db::get_key_check();
+    const bool had_key_check = !kc_blob.empty();
+    if (had_key_check && !enc::verify_key_check(kc_blob, master_key))
     {
-        auto kc_blob = vault_db::get_key_check();
-        if (!kc_blob.empty() && !enc::verify_key_check(kc_blob, master_key))
-        {
-            enc::secure_zero(master_key);
-            vault_db::close();
-            v.set_status("Wrong password.", true);
-            return false;
-        }
+        enc::secure_zero(master_key);
+        vault_db::close();
+        v.set_status("Wrong password.", true);
+        return false;
     }
 
     // Load all credentials
@@ -3418,6 +3417,31 @@ static bool load_vault_from_disk(const std::string& path, const std::string& pas
         vault_db::close();
         v.set_status("Failed to decrypt credentials (wrong password?).", true);
         return false;
+    }
+
+    // Legacy vault (created before key_check stamping): stamp one now, but only
+    // once the password is proven by decrypting real data. Mirrors pw-windows
+    // load_vault_from_disk. This also closes the trash-only wrong-password hole:
+    // a vault whose only rows are trashed has no live creds and count_credentials()
+    // == 0, so the check above can't catch a wrong password — load_deleted does.
+    // A legacy vault with no live AND no trashed entries can't be verified here; it
+    // gets stamped on its first save with content (cred_ops::save_all).
+    if (!had_key_check)
+    {
+        bool verified = !creds.empty();
+        if (!verified && !vault_db::get_deleted_credentials().empty())
+        {
+            if (cred_ops::load_deleted(master_key).empty())
+            {
+                enc::secure_zero(master_key);
+                vault_db::close();
+                v.set_status("Wrong password.", true);
+                return false;
+            }
+            verified = true;
+        }
+        if (verified)
+            vault_db::set_key_check(enc::make_key_check(master_key));
     }
 
     v.vault_path = path;
@@ -3562,6 +3586,19 @@ static bool create_new_vault_on_disk(const std::string& path, const std::string&
 
     // Store KDF level in vault for future reference
     vault_db::set_sync_state("kdf_level", high_sec ? "sensitive" : "moderate");
+
+    // Stamp key_check at creation (parity with pw-windows create_new_vault_on_disk).
+    // Without this a brand-new empty vault has no stamp until the first credential is
+    // saved, so the first unlock would accept ANY password — a typo'd creation
+    // password then silently commits the vault to that typo on first save. Stamp now,
+    // under the just-derived key, so every vault is verifiable from birth.
+    if (!vault_db::set_key_check(enc::make_key_check(master_key)))
+    {
+        enc::secure_zero(master_key);
+        vault_db::close();
+        v.set_status("Failed to store password key-check.", true);
+        return false;
+    }
 
     v.vault_path = path;
     v.master_key = std::move(master_key);
