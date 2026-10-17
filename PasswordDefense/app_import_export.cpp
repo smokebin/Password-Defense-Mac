@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "app_internal.h"
+#include "credential_ops.h"
 #include "json.hpp"
 #include "utility_stub.h"
 
@@ -15,34 +16,26 @@
 #endif
 
 // ============================================================
-// JSON serialization (for undo, in-memory only)
+// JSON serialization (for undo + per-row saved snapshot, in-memory only)
+//
+// Goes through cred_ops::to_json / from_json (the canonical content-field
+// serializer) and wraps it with an identity envelope: id, uuid, and the
+// DB timestamps that undo needs to recreate the row with the right
+// insert/update outcome. New Credential fields now only need to be added
+// to cred_ops::to_json / from_json to flow through here as well — the
+// pre-port hand-rolled list in this file silently dropped card_address.
 // ============================================================
 
 std::string serialize_creds_json(const std::vector<Credential>& creds)
 {
     nlohmann::json j = nlohmann::json::array();
     for (const auto& c : creds) {
-        nlohmann::json hist = nlohmann::json::array();
-        for (const auto& h : c.password_history) {
-            hist.push_back({{"password", h.password}, {"changed_at_ms", h.changed_at_ms}});
-        }
-        j.push_back({
-            {"id", c.id}, {"uuid", c.uuid}, {"title", c.title}, {"password", c.password},
-            {"user", c.user}, {"email", c.email}, {"website", c.website}, {"group", c.group},
-            {"notes", c.notes}, {"totp_secret", c.totp_secret}, {"is_favorite", c.is_favorite}, {"is_pinned", c.is_pinned},
-            {"expires_at_ms", c.expires_at_ms}, {"expiry_action", c.expiry_action},
-            {"type", static_cast<int>(c.type)},
-            {"card_number", c.card_number}, {"card_expiry", c.card_expiry},
-            {"card_cvv", c.card_cvv}, {"card_brand", c.card_brand},
-            {"cardholder_name", c.cardholder_name},
-            {"card_city", c.card_city}, {"card_postal_code", c.card_postal_code},
-            {"full_name", c.full_name}, {"id_type", c.id_type},
-            {"id_number", c.id_number}, {"date_of_birth", c.date_of_birth},
-            {"expiry_date", c.expiry_date}, {"country", c.country},
-            {"address", c.address}, {"phone", c.phone},
-            {"created_at_ms", c.created_at_ms}, {"updated_at_ms", c.updated_at_ms},
-            {"password_history", hist}
-        });
+        nlohmann::json body = cred_ops::to_json(c);
+        body["id"]            = c.id;
+        body["uuid"]          = c.uuid;
+        body["created_at_ms"] = c.created_at_ms;
+        body["updated_at_ms"] = c.updated_at_ms;
+        j.push_back(std::move(body));
     }
     return j.dump();
 }
@@ -54,44 +47,11 @@ std::vector<Credential> deserialize_creds_json(const std::string& json_str)
         auto j = nlohmann::json::parse(json_str);
         for (const auto& x : j) {
             Credential c{};
-            c.id = x.value("id", 0);
-            c.uuid = x.value("uuid", "");
-            c.title = x.value("title", "");
-            c.password = x.value("password", "");
-            c.user = x.value("user", "");
-            c.email = x.value("email", "");
-            c.website = x.value("website", "");
-            c.group = x.value("group", "");
-            c.notes = x.value("notes", "");
-            c.totp_secret = x.value("totp_secret", "");
-            c.is_favorite = x.value("is_favorite", false);
-            c.is_pinned = x.value("is_pinned", false);
-            c.expires_at_ms = x.value("expires_at_ms", int64_t(0));
-            c.expiry_action = x.value("expiry_action", 0);
-            c.type = static_cast<CredType>(x.value("type", 0));
-            c.card_number     = x.value("card_number", "");
-            c.card_expiry     = x.value("card_expiry", "");
-            c.card_cvv        = x.value("card_cvv", "");
-            c.card_brand      = x.value("card_brand", "");
-            c.cardholder_name = x.value("cardholder_name", "");
-            c.card_city        = x.value("card_city", "");
-            c.card_postal_code = x.value("card_postal_code", "");
-            c.full_name     = x.value("full_name", "");
-            c.id_type       = x.value("id_type", "");
-            c.id_number     = x.value("id_number", "");
-            c.date_of_birth = x.value("date_of_birth", "");
-            c.expiry_date   = x.value("expiry_date", "");
-            c.country       = x.value("country", "");
-            c.address       = x.value("address", "");
-            c.phone         = x.value("phone", "");
+            cred_ops::from_json(x, c);
+            c.id            = x.value("id", 0);
+            c.uuid          = x.value("uuid", "");
             c.created_at_ms = x.value("created_at_ms", int64_t(0));
             c.updated_at_ms = x.value("updated_at_ms", int64_t(0));
-            for (const auto& h : x.value("password_history", nlohmann::json::array())) {
-                Credential::PasswordHistoryEntry e;
-                e.password      = h.value("password", "");
-                e.changed_at_ms = h.value("changed_at_ms", int64_t(0));
-                c.password_history.push_back(std::move(e));
-            }
             result.push_back(c);
         }
     } catch (...) {}

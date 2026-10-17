@@ -28,6 +28,7 @@
 #include "totp.h"
 #include "auth_crypto.h"  // Option C auth hash
 #include "favicon.h"
+#include "u8path.h"       // helpers::U8Path / PathToU8 for recovery-dir I/O
 #include "sync_manager.h"
 #include "local_server.h" // Localhost extension server
 #include "save.h"          // Config persistence
@@ -217,6 +218,15 @@ struct VaultState
     std::vector<Credential> creds;
     std::unordered_map<std::string, Credential> saved_snapshot; // keyed by uuid
 
+    // Save-time deletion ledger. Populated by UI actions; drained by cred_ops::save_all.
+    // user_removed_uuids = uuids the user explicitly soft-deleted (moved to trash) this
+    //   session but hasn't persisted yet. Save-time hard-delete looks at THIS, never at
+    //   "memory - db" inference, so a row that failed to decrypt isn't silently nuked.
+    // purged_uuids = uuids the user permanently deleted from trash this session. Save
+    //   skips re-inserting them even if they come back via undo.
+    std::unordered_set<std::string> user_removed_uuids;
+    std::unordered_set<std::string> purged_uuids;
+
     Credential  add_buf{};
     Credential  edit_buf{};
 
@@ -288,6 +298,10 @@ struct VaultState
         for (auto& [uuid, c] : saved_snapshot)
             secure_clear_credential(c);
         saved_snapshot.clear();
+
+        // Pending-save ledger — belongs to the unlocked session, drop on lock.
+        user_removed_uuids.clear();
+        purged_uuids.clear();
 
         unlocked = false;
         tofa_pending = false;
@@ -672,6 +686,30 @@ std::vector<uint8_t> Get2FAMasterKey()
 const std::vector<Credential>& GetActiveVaultCreds()
 {
     return ActiveVault().creds;
+}
+
+// Record a trash-permanent-delete so cred_ops::save_all can skip re-inserting
+// if the cred comes back via undo. Also wipes the uuid from user_removed_uuids
+// so the next save doesn't try to hard-delete something that's already gone.
+void NotePermanentlyDeleted(const std::string& uuid)
+{
+    if (uuid.empty()) return;
+    VaultState& v = ActiveVault();
+    v.purged_uuids.insert(uuid);
+    v.user_removed_uuids.erase(uuid);
+}
+
+// Flush pending edits to disk before a direct DB mutation. The trash-restore
+// path calls vault_db::restore_credential then reloads memory from disk; any
+// in-flight memory edits would be silently lost (and soft-deletes resurrected)
+// without this flush. Short-circuits if nothing is pending.
+static bool save_vault_to_disk(VaultState& v);  // forward decl for FlushVaultBeforeDbOp
+bool FlushVaultBeforeDbOp()
+{
+    VaultState& v = ActiveVault();
+    if (!v.unlocked) return false;
+    if (!v.dirty && v.user_removed_uuids.empty()) return true;
+    return save_vault_to_disk(v);
 }
 
 static uint32_t GetVaultKey(const VaultTab& tab)
@@ -1724,8 +1762,10 @@ static void render_dedup_modal()
         }
 
         if (!to_delete.empty()) {
-            for (const std::string& uuid : to_delete)
+            for (const std::string& uuid : to_delete) {
                 cred_ops::remove(uuid);
+                v.user_removed_uuids.insert(uuid);  // ledger for save_all
+            }
 
             // Reload from DB so the in-memory list reflects the soft-deletes.
             v.creds = cred_ops::load_all(v.master_key);
@@ -2250,9 +2290,55 @@ static void render_credential_modal(VaultState& v)
 
         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - btnW);
 
+        // Why-disabled hint. The validation table (title/user/password/card_number/
+        // id_number per type) matches Windows parity but the button alone gives no
+        // reason — surface it on hover so users don't have to guess which field
+        // they left blank.
+        const char* disabled_reason = nullptr;
+        if (!can_submit)
+        {
+            switch (ct)
+            {
+            case CredType::Password:
+                if (g_cred_modal.password_buf.empty())
+                    disabled_reason = "Password is required.";
+                else
+                    disabled_reason = "Add a title, email, or username so you can find this later.";
+                break;
+            case CredType::CreditCard:
+                if (g_cred_modal.buf.title.empty() && g_cred_modal.buf.card_number.empty())
+                    disabled_reason = "Title and card number are required.";
+                else if (g_cred_modal.buf.title.empty())
+                    disabled_reason = "Title is required.";
+                else
+                    disabled_reason = "Card number is required.";
+                break;
+            case CredType::Identity:
+                if (g_cred_modal.buf.title.empty() && g_cred_modal.buf.id_number.empty())
+                    disabled_reason = "Title and ID number are required.";
+                else if (g_cred_modal.buf.title.empty())
+                    disabled_reason = "Title is required.";
+                else
+                    disabled_reason = "ID number is required.";
+                break;
+            case CredType::SecureNote:
+                disabled_reason = "Title is required.";
+                break;
+            }
+        }
+
         ImGui::BeginDisabled(!can_submit);
         const char* submitLabel = g_cred_modal.IsAdd() ? ICON_MDI_PLUS " Add" : ICON_MDI_CONTENT_SAVE " Save";
         bool submit_clicked = ui::StyledButtonLight("##modal_submit", submitLabel, ImVec2(btnW, btnH));
+
+        // Hover over the disabled button to see the missing-field reason.
+        // ImGuiHoveredFlags_AllowWhenDisabled lets BeginDisabled regions still
+        // register as hovered; without it the tooltip never fires.
+        if (!can_submit && disabled_reason &&
+            ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        {
+            ui::SetTooltipPadded("%s", disabled_reason);
+        }
 
         if ((submit_clicked || submit_shortcut) && can_submit)
         {
@@ -3252,6 +3338,15 @@ namespace {
     ImVec2 g_last_mouse_pos = ImVec2(0, 0);
 }
 
+// Scan the recovery dir on unlock. If any .rec decrypts under this vault's master
+// key (ownership proof — unrelated vaults' .rec files have different keys and will
+// fail the AEAD check), merge newer-than-local entries into v.creds, re-save, then
+// delete the .rec. "Newer than local" is the stale-recovery guard — a .rec left
+// behind from a stale session can't clobber a legit edit the user made since.
+// Defined later in the file (next to save_vault_to_disk) because it needs the
+// save path to commit the restored state.
+static bool restore_recovery_snapshot_if_newer(VaultState& v);
+
 static bool load_vault_from_disk(const std::string& path, const std::string& password, VaultState& v)
 {
     v.clear_status();
@@ -3297,10 +3392,26 @@ static bool load_vault_from_disk(const std::string& path, const std::string& pas
         return false;
     }
 
+    // Unlock-time key-check: if the vault has been stamped (any vault that's been
+    // saved by this build or newer), verifying the stamp is a definitive wrong-key
+    // test. Covers the gap in the "did anything decrypt?" check below, which lets
+    // wrong-password unlock succeed when the vault happens to be empty.
+    {
+        auto kc_blob = vault_db::get_key_check();
+        if (!kc_blob.empty() && !enc::verify_key_check(kc_blob, master_key))
+        {
+            enc::secure_zero(master_key);
+            vault_db::close();
+            v.set_status("Wrong password.", true);
+            return false;
+        }
+    }
+
     // Load all credentials
     std::vector<Credential> creds = cred_ops::load_all(master_key);
 
-    // If we have credentials in DB but couldn't decrypt any, password is likely wrong
+    // If we have credentials in DB but couldn't decrypt any, password is likely wrong.
+    // Secondary defense for legacy vaults without a key_check stamp (verified above).
     if (creds.empty() && vault_db::count_credentials() > 0)
     {
         enc::secure_zero(master_key);
@@ -3349,6 +3460,10 @@ static bool load_vault_from_disk(const std::string& path, const std::string& pas
     StartLocalServerIfEnabled(v);
     propagate_sync_tokens();
 
+    // Replay any .rec snapshot left behind by a prior save-fail. Decrypts under
+    // this vault's master key, so unrelated vaults' snapshots are ignored.
+    restore_recovery_snapshot_if_newer(v);
+
     v.set_status("Vault unlocked.", false);
     return true;
 }
@@ -3385,6 +3500,10 @@ static void complete_2fa_unlock(const std::string& code, VaultState& v)
     g_last_activity_time = ImGui::GetTime();
 
     StartLocalServerIfEnabled(v);
+
+    // Mirror load_vault_from_disk — a .rec left behind by a prior save-fail should
+    // be replayed after 2FA succeeds too.
+    restore_recovery_snapshot_if_newer(v);
 
     v.set_status("Vault unlocked.", false);
 }
@@ -3503,6 +3622,71 @@ static bool create_new_vault_on_disk(const std::string& path, const std::string&
     return true;
 }
 
+// Autolock-save-failed telemetry per vault_path. When write_recovery_snapshot_file
+// stashes a .rec, we remember both the fail-flag and the filename so a future pass
+// (step 5: restore_recovery_snapshot_if_newer) can clean up after a successful
+// post-restart save. Vault_path keyed so multi-tab usage keeps them separate.
+static std::unordered_map<std::string, bool>        g_autolock_save_failed_by_vault;
+static std::unordered_map<std::string, std::string> g_autolock_recovery_file_by_vault;
+
+// Synchronous recovery-snapshot write. Called ONLY on save failure, from the main
+// thread — intentionally not detached: a backgrounded writer would race vault_db::close()
+// on the shared g_db handle (fixed-bug invariant #1 from the data-safety batch).
+//
+// Serializes the current in-memory creds via cred_ops::to_json (invariant #2: same
+// field list as the DB blob — new fields propagate automatically), wraps with uuid +
+// timestamps that the snapshot needs on restore, encrypts under the master key with
+// AAD "recovery_snapshot" (dedicated so the blob can't be swapped with any other),
+// and writes to the per-user recovery directory.
+static bool write_recovery_snapshot_file(
+    const std::vector<Credential>& creds,
+    const std::unordered_set<std::string>& user_removed_uuids,
+    const std::vector<uint8_t>& master_key,
+    const std::string& v_key)
+{
+    try {
+        std::string rec_dir_u8 = cfg::get_recovery_directory_path();
+        if (rec_dir_u8.empty()) return false;
+        std::filesystem::path rec_dir = helpers::U8Path(rec_dir_u8);
+        std::error_code ec;
+        std::filesystem::create_directories(rec_dir, ec);
+
+        int64_t now_ms = helpers::now_unix_ms();
+        std::string filename = "vault_recovery_" + std::to_string(now_ms) + ".rec";
+        std::filesystem::path rec_file = rec_dir / filename;
+
+        nlohmann::json j;
+        nlohmann::json creds_arr = nlohmann::json::array();
+        for (const auto& c : creds) {
+            nlohmann::json cj = cred_ops::to_json(c);
+            cj["uuid"]       = c.uuid;
+            cj["created_at"] = c.created_at_ms;
+            cj["updated_at"] = c.updated_at_ms;
+            cj["deleted_at"] = c.deleted_at_ms;
+            creds_arr.push_back(std::move(cj));
+        }
+        j["creds"] = creds_arr;
+        nlohmann::json removed_arr = nlohmann::json::array();
+        for (const auto& u : user_removed_uuids) removed_arr.push_back(u);
+        j["user_removed_uuids"] = removed_arr;
+
+        std::string serialized = j.dump();
+        auto enc_blob = enc::encrypt_credential(serialized, master_key, "recovery_snapshot");
+        sodium_memzero(&serialized[0], serialized.size());
+
+        if (!enc_blob.empty()) {
+            const std::string rec_file_u8 = helpers::PathToU8(rec_file);
+            if (helpers::bytes_to_file(rec_file_u8.c_str(), enc_blob)) {
+                g_autolock_save_failed_by_vault[v_key] = true;
+                g_autolock_recovery_file_by_vault[v_key] = rec_file_u8;
+                return true;
+            }
+        }
+    }
+    catch (...) {}
+    return false;
+}
+
 static bool save_vault_to_disk(VaultState& v)
 {
     v.clear_status();
@@ -3529,89 +3713,163 @@ static bool save_vault_to_disk(VaultState& v)
         }
     }
 
-    // Sync in-memory credentials to SQLite
-    // Strategy: Clear and re-import all credentials
-    // This handles adds, updates, and deletes uniformly
-
-    vault_db::begin_transaction();
-
-    // Get all existing non-deleted UUIDs from database
-    auto existing_rows = vault_db::get_all_credentials();
-    std::unordered_set<std::string> existing_uuids;
-    for (const auto& row : existing_rows)
-        existing_uuids.insert(row.uuid);
-
-    // Collect soft-deleted UUIDs (for undo recovery detection)
-    auto deleted_rows = vault_db::get_deleted_credentials();
-    std::unordered_set<std::string> soft_deleted_uuids;
-    for (const auto& row : deleted_rows)
-        soft_deleted_uuids.insert(row.uuid);
-
-    // Track which UUIDs are still in memory
-    std::unordered_set<std::string> memory_uuids;
-
-    // Update or insert each in-memory Credential
-    bool save_ok = true;
-    for (auto& c : v.creds)
+    // Verify-before-overwrite + ghost-vault escape (step 3). key_check decrypt failure
+    // means the key doesn't match this vault file — lock the session instead of saving.
     {
-        if (c.uuid.empty())
+        auto kc_blob = vault_db::get_key_check();
+        if (!kc_blob.empty() && !enc::verify_key_check(kc_blob, v.master_key))
         {
-            // New Credential - add it
-            std::string new_uuid = cred_ops::add(c, v.master_key);
-            if (!new_uuid.empty())
-            {
-                c.uuid = new_uuid;
-                memory_uuids.insert(new_uuid);
-            }
-            else
-            {
-                save_ok = false;
-                break;
-            }
-        }
-        else
-        {
-            // If Credential was soft-deleted but restored via undo, restore in DB
-            if (soft_deleted_uuids.count(c.uuid))
-                vault_db::restore_credential(c.uuid);
+            ui::ShowToast("Save refused — wrong key, vault locked", ui::ToastType::Error);
 
-            // Existing Credential - re-encrypt and store (preserve timestamps)
-            memory_uuids.insert(c.uuid);
-            {
-                auto blob = cred_ops::encrypt_cred_public(c, v.master_key, c.uuid);
-                int64_t ts = (c.updated_at_ms != 0) ? c.updated_at_ms : helpers::now_unix_ms();
-                if (blob.empty() || !vault_db::update_credential(c.uuid, blob, ts))
-                {
-                    save_ok = false;
-                    break;
-                }
-            }
+            vault_db::close();
+            v.clear_sensitive();
+            secure_clear_credentials(v.creds);
+            secure_clear_undo_stack(v.undo_stack);
+            ui::SetRepromptMasterPassword("");
+            ui::ResetRepromptLockout();
+            ResetScreen(g_shell, ui::Screen::Locked);
+            return false;
         }
     }
 
-    if (!save_ok)
+    // Transactional save: inserts, updates, undo-restores, explicit hard-deletes only.
+    // On any failure (including COMMIT) it rolls back and un-assigns new uuids, so
+    // memory still matches the unchanged DB and the next save retries cleanly.
+    const auto snap_removed = v.user_removed_uuids;
+    const cred_ops::SaveResult r =
+        cred_ops::save_all(v.creds, v.master_key, snap_removed, v.purged_uuids);
+
+    if (!r.ok)
     {
-        vault_db::rollback_transaction();
-        v.set_status("Save failed: encryption or database error.", true);
+        // Snapshot-on-fail: stash the in-memory vault to disk SYNCHRONOUSLY so a
+        // crash/kill right after this doesn't lose the session's edits. See the
+        // write_recovery_snapshot_file doc for why not a background thread.
+        const std::string v_key = v.vault_path.empty() ? "default" : v.vault_path;
+        write_recovery_snapshot_file(v.creds, v.user_removed_uuids, v.master_key, v_key);
+
+        v.set_status(r.error, true);
         ui::ShowToast("Save failed", ui::ToastType::Error);
         return false;
     }
 
-    // Hard delete only true orphans (not in memory AND not soft-deleted)
-    for (const auto& uuid : existing_uuids)
-    {
-        if (memory_uuids.find(uuid) == memory_uuids.end())
-        {
-            vault_db::hard_delete_credential(uuid);
-        }
-    }
+    // Committed: erase only the snapshotted removals so concurrent deletions
+    // (user removed another cred while this save was in-flight) are preserved.
+    for (const auto& u : snap_removed)
+        v.user_removed_uuids.erase(u);
 
-    vault_db::commit_transaction();
+    // purged uuids are session-local; nothing further to persist. Clear once committed
+    // so re-adding a formerly-purged cred (same session) can insert again.
+    v.purged_uuids.clear();
 
     VaultMarkSaved(v);
     v.set_status("Saved.", false);
     ui::ShowToast("Vault saved", ui::ToastType::Success);
     return true;
+}
+
+static bool restore_recovery_snapshot_if_newer(VaultState& v)
+{
+    if (!v.unlocked || v.master_key.empty()) return false;
+
+    std::string rec_dir_u8 = cfg::get_recovery_directory_path();
+    if (rec_dir_u8.empty()) return false;
+    std::filesystem::path rec_dir = helpers::U8Path(rec_dir_u8);
+    std::error_code ec;
+    if (!std::filesystem::exists(rec_dir, ec)) return false;
+
+    bool restored_any = false;
+    std::vector<std::filesystem::path> rec_files_to_remove;
+
+    for (const auto& entry : std::filesystem::directory_iterator(rec_dir, ec)) {
+        if (!entry.is_regular_file()) continue;
+        if (entry.path().extension() != ".rec") continue;
+
+        auto enc_blob = helpers::file_to_vec(helpers::PathToU8(entry.path()).c_str());
+        if (enc_blob.empty()) continue;
+
+        std::string plain = enc::decrypt_credential(enc_blob, v.master_key, "recovery_snapshot");
+        if (plain.empty()) continue; // Not this vault's key — ownership proof
+
+        try {
+            auto j = nlohmann::json::parse(plain);
+            nlohmann::json creds_arr;
+            if (j.is_array()) {
+                creds_arr = j;
+            } else if (j.is_object() && j.contains("creds") && j["creds"].is_array()) {
+                creds_arr = j["creds"];
+            } else {
+                continue;
+            }
+
+            for (const auto& it : creds_arr) {
+                std::string u = it.value("uuid", "");
+                if (u.empty()) continue;
+
+                int64_t rec_updated = it.value("updated_at", int64_t(0));
+
+                Credential* existing = nullptr;
+                for (auto& c_item : v.creds) {
+                    if (c_item.uuid == u) {
+                        existing = &c_item;
+                        break;
+                    }
+                }
+
+                if (existing != nullptr) {
+                    // Stale-recovery guard: only overwrite when the snapshot is strictly
+                    // newer than the local row; a leftover .rec can't clobber a legit edit.
+                    if (rec_updated > existing->updated_at_ms) {
+                        cred_ops::from_json(it, *existing);
+                        existing->uuid = u;
+                        existing->updated_at_ms = rec_updated;
+                        existing->deleted_at_ms = it.value("deleted_at", existing->deleted_at_ms);
+                        // created_at_ms: keep the row's original creation time
+                        restored_any = true;
+                    }
+                } else {
+                    Credential c;
+                    cred_ops::from_json(it, c);
+                    c.uuid = u;
+                    c.created_at_ms = it.value("created_at", helpers::now_unix_ms());
+                    c.updated_at_ms = rec_updated;
+                    c.deleted_at_ms = it.value("deleted_at", int64_t(0));  // trashed stays trashed
+                    v.creds.push_back(std::move(c));
+                    restored_any = true;
+                }
+            }
+
+            if (j.is_object() && j.contains("user_removed_uuids") && j["user_removed_uuids"].is_array()) {
+                for (const auto& u_val : j["user_removed_uuids"]) {
+                    if (u_val.is_string())
+                        v.user_removed_uuids.insert(u_val.get<std::string>());
+                }
+            }
+
+            rec_files_to_remove.push_back(entry.path());
+        }
+        catch (...) {}
+    }
+
+    const std::string v_key = v.vault_path.empty() ? "default" : v.vault_path;
+
+    if (restored_any) {
+        VaultMarkChanged(v, "RECOVERY");
+        // Delete the .rec ONLY after the restored state is committed — if the save
+        // fails, we keep the snapshot and surface a toast; the next unlock will try again.
+        if (save_vault_to_disk(v)) {
+            for (const auto& p : rec_files_to_remove)
+                std::filesystem::remove(p, ec);
+            g_autolock_save_failed_by_vault[v_key] = false;
+            ui::ShowToast("Recovered unsaved changes from previous session", ui::ToastType::Success);
+        }
+    } else if (!rec_files_to_remove.empty()) {
+        // Snapshots existed but were strictly older than local — just clean them up.
+        for (const auto& p : rec_files_to_remove)
+            std::filesystem::remove(p, ec);
+        g_autolock_save_failed_by_vault[v_key] = false;
+    }
+
+    return restored_any;
 }
 
 static void TickAutosave()
@@ -3733,14 +3991,14 @@ static void TickCredentialExpiry()
             c.deleted_at_ms = now_ms;
             c.updated_at_ms = now_ms;
             char toast[256];
-            snprintf(toast, sizeof(toast), "Timed credential trashed: %s", c.title.c_str());
+            snprintf(toast, sizeof(toast), "Timed credential trashed: %s", DisplayTitle(c.title));
             ui::ShowToast(toast, ui::ToastType::Info);
         } else {
             // Flag only: negate expires_at_ms to mark as expired
             c.expires_at_ms = -c.expires_at_ms;
             c.updated_at_ms = now_ms;
             char toast[256];
-            snprintf(toast, sizeof(toast), "Credential expired: %s", c.title.c_str());
+            snprintf(toast, sizeof(toast), "Credential expired: %s", DisplayTitle(c.title));
             ui::ShowToast(toast, ui::ToastType::Error);
         }
     }
@@ -3770,7 +4028,15 @@ static void do_undo(VaultState& v)
     const std::string snap = v.undo_stack.back();
     v.undo_stack.pop_back();
 
+    // Snapshot "before" so reconcile can tell what the undo removed vs restored
+    const std::vector<Credential> before = v.creds;
+
     v.apply_snapshot_json(snap);
+
+    // Drop any uuid the user purged this session (so Empty-Trash-then-Undo doesn't
+    // visibly resurrect ghosts the next save would silently drop), and keep the
+    // user_removed ledger in sync with what the restored memory actually contains.
+    cred_ops::reconcile_after_undo(before, v.creds, v.user_removed_uuids, v.purged_uuids);
 
     // Important: reset per-row UI state for THIS vault after big changes
     ui::ForgetVaultRowState(GetActiveVaultKey());
@@ -3887,6 +4153,21 @@ static void render_locked_screen()
 
     // Soft container: lifted surface with subtle shadow
     render::BeginSoftContainer(20.0f, 10.0f);
+
+    // Save-fail recovery banner. Set by write_recovery_snapshot_file when an
+    // autosave/lock-time save fails and a .rec snapshot was stashed. Tells the
+    // user the data isn't lost — restore_recovery_snapshot_if_newer will replay
+    // the snapshot on unlock. Cleared once the restore commits.
+    {
+        const std::string cur_v_key = v.vault_path.empty() ? "default" : v.vault_path;
+        auto it = g_autolock_save_failed_by_vault.find(cur_v_key);
+        if (it != g_autolock_save_failed_by_vault.end() && it->second) {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.65f, 0.2f, 1.0f));  // orange warning
+            ImGui::TextWrapped("Auto-save failed last session. An encrypted recovery snapshot was created and will be restored when you unlock.");
+            ImGui::PopStyleColor();
+            ImGui::Dummy(ImVec2(0, 6));
+        }
+    }
 
     // Cache vault list
     if (s_cached_vaults.empty())
@@ -6507,8 +6788,10 @@ static void render_unlocked_screen()
 
             // Soft-delete each in DB before removing from memory
             for (const auto& c : v.creds) {
-                if (ids.count(c.id) > 0 && !c.uuid.empty())
+                if (ids.count(c.id) > 0 && !c.uuid.empty()) {
                     cred_ops::remove(c.uuid);
+                    v.user_removed_uuids.insert(c.uuid);  // ledger for save_all
+                }
             }
 
             const size_t before = v.creds.size();
@@ -6645,6 +6928,7 @@ static void render_unlocked_screen()
                 });
                 persist_recent_items(g_shell);
                 cred_ops::remove(c.uuid);
+                v.user_removed_uuids.insert(c.uuid);  // ledger for save_all
                 break;
             }
         }
@@ -6797,7 +7081,7 @@ static void render_unlocked_screen()
 
                 ImGui::TextDisabled("Credential:");
                 ImGui::SameLine();
-                ImGui::TextUnformatted(g_anon_share.cred.title.c_str());
+                ImGui::TextUnformatted(DisplayTitle(g_anon_share.cred.title));
                 ImGui::Dummy(ImVec2(0, 8));
 
                 ImGui::TextDisabled("Expires after");

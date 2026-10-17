@@ -19,6 +19,11 @@ namespace cfg {
 	void set_self_destruct_mode(int mode);
 	void register_self_destruct_handler();
 
+	// Recovery snapshot directory for autolock-save-failed scenarios.
+	// macOS: ~/Library/Application Support/PasswordDefense/recovery
+	// Returns std::string (UTF-8) — Windows's std::wstring return is a Win32 artifact.
+	std::string get_recovery_directory_path();
+
 	// Sync configuration
 	std::string get_sync_server_url();
 	void set_sync_server_url(const std::string& url);

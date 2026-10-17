@@ -42,6 +42,16 @@ namespace enc {
         const std::string& uuid);
 
     // ----------------------------
+    // Key check — a tiny AEAD blob with a fixed plaintext, encrypted under
+    // the master key. Decrypting it successfully is proof that we hold the
+    // right key, which lets save paths refuse to overwrite the vault with
+    // "zero credentials because we couldn't decrypt anything" when a wrong
+    // password slips through earlier checks.
+    // ----------------------------
+    std::vector<uint8_t> make_key_check(const std::vector<uint8_t>& master_key);
+    bool verify_key_check(const std::vector<uint8_t>& blob, const std::vector<uint8_t>& master_key);
+
+    // ----------------------------
     // Legacy functions (no AAD) - for migration only
     // ----------------------------
 

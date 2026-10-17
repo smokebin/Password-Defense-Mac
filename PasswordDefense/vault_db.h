@@ -155,6 +155,13 @@ namespace vault_db {
     std::string get_sync_state(const std::string& key);
     bool set_sync_state(const std::string& key, const std::string& value);
 
+    // Master-password key-check blob (hex in pm_sync_state("key_check"); empty = legacy vault).
+    // Minted on first successful save after unlock. Save paths decrypt it with the current
+    // master key via enc::verify_key_check and refuse to overwrite the vault if verification
+    // fails — stops a wrong-password unlock from clobbering real data with an empty save.
+    std::vector<uint8_t> get_key_check();
+    bool set_key_check(const std::vector<uint8_t>& blob);
+
     // Server revision tracking (per-vault cursor)
     int64_t get_last_server_rev(const std::string& vault_slug);
     bool set_last_server_rev(const std::string& vault_slug, int64_t rev);

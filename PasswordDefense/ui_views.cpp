@@ -1287,7 +1287,7 @@ namespace ui
         // ===========================================================
         // TITLE + STATUS CHIPS (PIN/FAV)
         // ===========================================================
-        const char* title = (!c.title.empty()) ? c.title.c_str() : "(untitled)";
+        const char* title = DisplayTitle(c.title);
 
         const float chipH = 18.0f;
         const float chipPadX = 6.0f;
@@ -2335,7 +2335,7 @@ namespace ui
         // TITLE + SUBTITLE + STATUS ICONS (PIN/FAV)
         // ===========================================================
         const auto& cols = g_shell_ptr->detailed_header_cols;
-        const char* title = (!c.title.empty()) ? c.title.c_str() : "(untitled)";
+        const char* title = DisplayTitle(c.title);
         const std::string lastEdited = FormatUnixMsDateOnly(c.updated_at_ms != 0 ? c.updated_at_ms : c.created_at_ms);
 
         const float chipGap = 6.0f;
@@ -3388,7 +3388,7 @@ namespace ui
         if (!state.flipped)
         {
             // Front face: title, subtitle, date (bottom left), icons (bottom right)
-            const char* title = (!c.title.empty()) ? c.title.c_str() : "(untitled)";
+            const char* title = DisplayTitle(c.title);
 
             // Type-aware subtitle
             std::string subtitle;
@@ -3817,7 +3817,7 @@ namespace ui
             if (tileTab == 0)
             {
                 ImGui::PushFont(render::FontBold);
-                ImGui::TextUnformatted(c.title.empty() ? "(untitled)" : c.title.c_str());
+                ImGui::TextUnformatted(DisplayTitle(c.title));
                 ImGui::PopFont();
                 ImGui::Dummy(ImVec2(0, 4));
 
@@ -4830,7 +4830,7 @@ namespace ui
                                     ImGui::PushClipRect(ImVec2(textX, selPos.y), ImVec2(textX + maxTextW, selPos.y + childRowH), true);
                                     cdl->AddText(ImVec2(textX, textY),
                                         ImGui::GetColorU32(childSelected ? ImGuiCol_Text : ImGuiCol_TextDisabled),
-                                        child.title.c_str());
+                                        DisplayTitle(child.title));
                                     ImGui::PopClipRect();
                                 }
 
@@ -4846,7 +4846,7 @@ namespace ui
                                     tdl->AddLine(ImVec2(treeLineX, vTop), ImVec2(treeLineX, vBot), treeCol, 1.0f);
                                 }
 
-                                if (ImGui::IsItemHovered()) SetTooltipPadded("%s", child.title.c_str());
+                                if (ImGui::IsItemHovered()) SetTooltipPadded("%s", DisplayTitle(child.title));
                                 ImGui::PopID();
                                 shown++;
                             }
@@ -5204,7 +5204,7 @@ namespace ui
                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
                 {
                     ImGui::SetDragDropPayload("CRED_ID", &it.id, sizeof(int));
-                    ImGui::Text("%s", it.title.c_str());
+                    ImGui::Text("%s", DisplayTitle(it.title));
                     ImGui::EndDragDropSource();
                 }
 
@@ -5225,7 +5225,7 @@ namespace ui
                 {
                     if (s.hover_expand)
                         s.three_pane_selected_id = it.id;
-                    SetTooltipPadded("%s", it.title.c_str());
+                    SetTooltipPadded("%s", DisplayTitle(it.title));
                 }
 
                 // Draw favicon or type icon centered in row
@@ -5381,7 +5381,7 @@ namespace ui
                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
                 {
                     ImGui::SetDragDropPayload("CRED_ID", &it.id, sizeof(int));
-                    ImGui::Text("%s", it.title.c_str());
+                    ImGui::Text("%s", DisplayTitle(it.title));
                     ImGui::EndDragDropSource();
                 }
 
@@ -5417,7 +5417,7 @@ namespace ui
 
                     // Title (overwrite selectable's own text rendering with centered version)
                     {
-                        const char* titleText = cols.title ? it.title.c_str() : "";
+                        const char* titleText = cols.title ? DisplayTitle(it.title) : "";
                         ImVec2 titlePos(textX, blockY);
                         fdl->AddText(render::FontBold, regSz, titlePos, ImGui::GetColorU32(ImGuiCol_Text), titleText);
                     }
@@ -5941,7 +5941,7 @@ namespace ui
             float maxTitleW = ImGui::GetContentRegionAvail().x - textX + headerMin.x - 10.0f;
             dl->PushClipRect(ImVec2(textX, blockY), ImVec2(textX + maxTitleW, blockY + titleFontSz + 1.0f), true);
             dl->AddText(render::FontBold, titleFontSz,
-                ImVec2(textX, blockY), ImGui::GetColorU32(ImGuiCol_Text), c.title.c_str());
+                ImVec2(textX, blockY), ImGui::GetColorU32(ImGuiCol_Text), DisplayTitle(c.title));
             dl->PopClipRect();
 
             dl->AddText(render::FontSmall, subFontSz,
@@ -7140,7 +7140,7 @@ namespace ui
                     // Title text (clipped to leave room for icons)
                     float titleW = iconsW > 0 ? colW - iconsW - 4.0f : colW;
                     ImGui::PushFont(render::FontBold);
-                    TextEllipsisClipped(c.title.c_str(), titleW);
+                    TextEllipsisClipped(DisplayTitle(c.title), titleW);
                     ImGui::PopFont();
 
                     // Draw pin/fav icons right-aligned (no mask needed — title already clipped)
@@ -7362,7 +7362,7 @@ namespace ui
             if (tbTab == 0)
             {
                 ImGui::PushFont(render::FontBold);
-                ImGui::TextUnformatted(c.title.empty() ? "(untitled)" : c.title.c_str());
+                ImGui::TextUnformatted(DisplayTitle(c.title));
                 ImGui::PopFont();
                 ImGui::Dummy(ImVec2(0, 4));
 

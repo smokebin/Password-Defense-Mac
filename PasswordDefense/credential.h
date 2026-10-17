@@ -7,6 +7,15 @@
 #include <cstdint>
 #include "cred_type.h"
 
+// Empty titles are allowed (nothing enforces non-empty on add). Render the
+// placeholder "(untitled)" instead of a blank gap so rows/tabs/tooltips stay
+// legible. Anywhere a Credential.title is drawn or passed to a tooltip or
+// drag payload or toast should route through this.
+inline const char* DisplayTitle(const std::string& title)
+{
+    return title.empty() ? "(untitled)" : title.c_str();
+}
+
 struct Credential
 {
     // Identity

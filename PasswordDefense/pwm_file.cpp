@@ -12,6 +12,7 @@
 // AAD = bytes [0..5] (magic + version)
 
 #include "pwm_file.h"
+#include "credential_ops.h"
 #include "json.hpp"
 #include "vault_crypto.h"
 #include "utility_stub.h"
@@ -30,91 +31,29 @@ static constexpr size_t TAG_SIZE   = 16;   // crypto_aead_xchacha20poly1305_ietf
 static constexpr size_t AAD_SIZE   = 6;    // magic(4) + version(2)
 static constexpr uint32_t MAX_CRED_COUNT = 100000;
 
-// ---- serialization (self-contained, not reusing undo serialize) ----
+// ---- serialization — routes through cred_ops canonical body + identity envelope.
+// The canonical shape covers every content field (new fields propagate automatically);
+// pwm_file adds uuid + timestamps + password_history metadata that only this on-disk
+// format needs. Before the step-8 unification these fields were hand-rolled here and
+// had to be kept in sync manually with the DB blob + undo serializer (the exact bug
+// class that silently dropped card_address from the undo path pre-step 2).
 
 static nlohmann::json cred_to_json(const Credential& c)
 {
-    nlohmann::json hist = nlohmann::json::array();
-    for (const auto& h : c.password_history) {
-        hist.push_back({{"password", h.password}, {"changed_at_ms", h.changed_at_ms}});
-    }
-
-    return {
-        {"uuid",             c.uuid},
-        {"title",            c.title},
-        {"password",         c.password},
-        {"user",             c.user},
-        {"email",            c.email},
-        {"website",          c.website},
-        {"group",            c.group},
-        {"notes",            c.notes},
-        {"totp_secret",      c.totp_secret},
-        {"is_favorite",      c.is_favorite},
-        {"is_pinned",        c.is_pinned},
-        {"type",             static_cast<int>(c.type)},
-        {"card_number",      c.card_number},
-        {"card_expiry",      c.card_expiry},
-        {"card_cvv",         c.card_cvv},
-        {"card_brand",       c.card_brand},
-        {"cardholder_name",  c.cardholder_name},
-        {"card_address",     c.card_address},
-        {"card_city",        c.card_city},
-        {"card_postal_code", c.card_postal_code},
-        {"full_name",        c.full_name},
-        {"id_type",          c.id_type},
-        {"id_number",        c.id_number},
-        {"date_of_birth",    c.date_of_birth},
-        {"expiry_date",      c.expiry_date},
-        {"country",          c.country},
-        {"address",          c.address},
-        {"phone",            c.phone},
-        {"created_at_ms",    c.created_at_ms},
-        {"updated_at_ms",    c.updated_at_ms},
-        {"password_history", hist}
-    };
+    nlohmann::json j = cred_ops::to_json(c);
+    j["uuid"]          = c.uuid;
+    j["created_at_ms"] = c.created_at_ms;
+    j["updated_at_ms"] = c.updated_at_ms;
+    return j;
 }
 
 static Credential json_to_cred(const nlohmann::json& j)
 {
     Credential c{};
+    cred_ops::from_json(j, c);
     c.uuid          = j.value("uuid", "");
-    c.title         = j.value("title", "");
-    c.password      = j.value("password", "");
-    c.user          = j.value("user", "");
-    c.email         = j.value("email", "");
-    c.website       = j.value("website", "");
-    c.group         = j.value("group", "");
-    c.notes         = j.value("notes", "");
-    c.totp_secret   = j.value("totp_secret", "");
-    c.is_favorite   = j.value("is_favorite", false);
-    c.is_pinned     = j.value("is_pinned", false);
-    c.type          = static_cast<CredType>(j.value("type", 0));
-    c.card_number     = j.value("card_number", "");
-    c.card_expiry     = j.value("card_expiry", "");
-    c.card_cvv        = j.value("card_cvv", "");
-    c.card_brand      = j.value("card_brand", "");
-    c.cardholder_name = j.value("cardholder_name", "");
-    c.card_address     = j.value("card_address", "");
-    c.card_city        = j.value("card_city", "");
-    c.card_postal_code = j.value("card_postal_code", "");
-    c.full_name     = j.value("full_name", "");
-    c.id_type       = j.value("id_type", "");
-    c.id_number     = j.value("id_number", "");
-    c.date_of_birth = j.value("date_of_birth", "");
-    c.expiry_date   = j.value("expiry_date", "");
-    c.country       = j.value("country", "");
-    c.address       = j.value("address", "");
-    c.phone         = j.value("phone", "");
     c.created_at_ms = j.value("created_at_ms", int64_t(0));
     c.updated_at_ms = j.value("updated_at_ms", int64_t(0));
-
-    for (const auto& h : j.value("password_history", nlohmann::json::array())) {
-        Credential::PasswordHistoryEntry e;
-        e.password      = h.value("password", "");
-        e.changed_at_ms = h.value("changed_at_ms", int64_t(0));
-        c.password_history.push_back(std::move(e));
-    }
-
     return c;
 }
 

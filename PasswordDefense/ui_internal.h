@@ -18,6 +18,21 @@ extern void ReloadVaultCredentials();
 
 extern const std::vector<Credential>& GetActiveVaultCreds();
 
+// UI layer records a permanent-delete so save_all can skip re-inserting if undo
+// brings the cred back. Side-effect: also drops the uuid from user_removed_uuids
+// so save_all doesn't try to hard-delete something that's already purged.
+extern void NotePermanentlyDeleted(const std::string& uuid);
+
+// Flush pending in-memory edits to disk before a direct DB mutation (e.g. the
+// trash-restore button, which calls vault_db::restore_credential then reloads
+// memory from disk). Without this, in-flight edits would be lost on reload or
+// soft-deletes would be resurrected. Returns false if the active vault is
+// locked or if the follow-up save_vault_to_disk failed.
+extern bool FlushVaultBeforeDbOp();
+
+// DisplayTitle moved to credential.h so TUs that don't pull in ui_internal.h
+// (notably application.cpp) can use it from the same declaration point.
+
 #include <functional>
 #include <cstdio>
 #include <cstdlib>

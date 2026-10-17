@@ -14,6 +14,7 @@
 #include "imgui_impl_metal.h"
 #include "imgui_impl_osx.h"
 #include "GUI.h"
+#include "UI.h"
 #include "save.h"
 #include "favicon.h"
 
@@ -107,6 +108,14 @@
     ImGui::NewFrame();
 
     render::DisplayProgram();
+
+    // Per-frame UI hooks (end-of-frame, before ImGui::Render()).
+    // Windows calls these from render::EndGUIDraw(); Mac has no equivalent
+    // host-side hook, so they live here. Both were implemented but never
+    // wired up on this fork — toasts and the clipboard auto-clear setting
+    // were silent no-ops before this.
+    ui::RenderToasts();
+    ui::TickClipboardClear();
 
     // Rendering
     ImGui::Render();

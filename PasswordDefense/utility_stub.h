@@ -66,6 +66,9 @@ namespace helpers
         bool   shortPwd = false;
         bool   tooSequential = false;
         bool   repeatedPattern = false;
+        bool   keyboardWalk = false;   // "qwerty", "asdfgh", "1qaz2wsx"
+        bool   isCommonPwd = false;    // in SecLists top-100k common passwords
+        bool   isDictWord = false;     // base word is a common word/name
         int    charClasses = 0;
     };
 

@@ -3,14 +3,17 @@
 
 #include "utility_stub.h"
 #include "imgui.h"
+#include "common_passwords_data.h"   // generated wordlist blobs (gen_wordlist.py)
 #include <ctime>
 #include <chrono>
 #include <cstring>
+#include <cctype>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
 #include <random>
 #include <cmath>
+#include <string_view>
 #include <sys/stat.h>
 #include <algorithm>
 
@@ -224,6 +227,161 @@ namespace helpers
 #endif
     }
 
+    // ============================================================
+    // Password strength — common-password + dictionary + keyboard-walk
+    // detection. Ported from pw-windows @ 3f17c0a (tools/utility.cpp).
+    // Blobs in common_passwords_data.h are '\n'-separated, sorted by unsigned
+    // byte order. Build the string_view index once and binary-search.
+    // ============================================================
+
+    static std::vector<std::string_view> _build_index(const unsigned char* blob, unsigned long len)
+    {
+        std::vector<std::string_view> v;
+        const char* p = reinterpret_cast<const char*>(blob);
+        size_t start = 0;
+        for (size_t i = 0; i <= (size_t)len; ++i) {
+            if (i == (size_t)len || p[i] == '\n') {
+                if (i > start) v.emplace_back(p + start, i - start);
+                start = i + 1;
+            }
+        }
+        return v;
+    }
+
+    static bool _in_common_pw(std::string_view key)
+    {
+        static const std::vector<std::string_view> idx =
+            _build_index(g_common_pw_blob, g_common_pw_blob_len);
+        return std::binary_search(idx.begin(), idx.end(), key);
+    }
+
+    static bool _in_common_word(std::string_view key)
+    {
+        static const std::vector<std::string_view> idx =
+            _build_index(g_common_word_blob, g_common_word_blob_len);
+        return std::binary_search(idx.begin(), idx.end(), key);
+    }
+
+    static std::string _to_lower(const std::string& s)
+    {
+        std::string r = s;
+        std::transform(r.begin(), r.end(), r.begin(),
+            [](unsigned char c) { return (char)std::tolower(c); });
+        return r;
+    }
+
+    static std::string _reverse(const std::string& s)
+    {
+        return std::string(s.rbegin(), s.rend());
+    }
+
+    // "pa$$w0rd" -> "password"; '1' is ambiguous (i vs l), callers try both.
+    static std::string _deleet(const std::string& s, bool oneToL)
+    {
+        std::string r; r.reserve(s.size());
+        for (unsigned char c : s) {
+            char m;
+            switch (c) {
+            case '@': case '4':           m = 'a'; break;
+            case '8':                     m = 'b'; break;
+            case '(': case '{': case '<': m = 'c'; break;
+            case '3':                     m = 'e'; break;
+            case '6': case '9':           m = 'g'; break;
+            case '#':                     m = 'h'; break;
+            case '1':                     m = oneToL ? 'l' : 'i'; break;
+            case '!': case '|':           m = 'i'; break;
+            case '0':                     m = 'o'; break;
+            case '$': case '5':           m = 's'; break;
+            case '7': case '+':           m = 't'; break;
+            case '2':                     m = 'z'; break;
+            default:                      m = (char)std::tolower(c); break;
+            }
+            r += m;
+        }
+        return r;
+    }
+
+    // "passworddd" -> "password"; singles/doubles left alone ("feel" stays "feel").
+    static std::string _collapse_repeats(const std::string& s)
+    {
+        std::string r; r.reserve(s.size());
+        size_t i = 0;
+        while (i < s.size()) {
+            char c = s[i];
+            size_t j = i;
+            while (j < s.size() && s[j] == c) ++j;
+            r += c;
+            if (j - i == 2) r += c;
+            i = j;
+        }
+        return r;
+    }
+
+    static bool _matches_with_leet(const std::string& word, bool (*pred)(std::string_view))
+    {
+        if (pred(word)) return true;
+        std::string a = _deleet(word, false); // 1→i
+        if (a != word && pred(a)) return true;
+        std::string b = _deleet(word, true);  // 1→l
+        if (b != a && b != word && pred(b)) return true;
+        return false;
+    }
+
+    // "maggie21" -> "maggie"
+    static std::string _extract_base_word(const std::string& pw)
+    {
+        std::string low = _to_lower(pw);
+        size_t end = low.size();
+        while (end > 0 && !std::isalpha((unsigned char)low[end - 1])) --end;
+        size_t start = 0;
+        while (start < end && !std::isalpha((unsigned char)low[start])) ++start;
+        if (end - start < 3) return "";
+        return low.substr(start, end - start);
+    }
+
+    static bool _is_keyboard_walk(const std::string& s)
+    {
+        if (s.size() < 4) return false;
+        std::string low = _to_lower(s);
+        static const char* rows[] = {
+            "qwertyuiop", "asdfghjkl", "zxcvbnm", "1234567890",
+            "1qaz2wsx3edc4rfv5tgb6yhn7ujm8ik9ol0p", // vertical columns
+            "qazwsxedcrfvtgbyhnujmikolp",           // diagonal-ish
+        };
+        for (const char* row : rows) {
+            std::string fwd(row);
+            std::string rev(fwd.rbegin(), fwd.rend());
+            for (size_t i = 0; i + 4 <= low.size(); ++i) {
+                std::string w = low.substr(i, 4);
+                if (fwd.find(w) != std::string::npos ||
+                    rev.find(w) != std::string::npos)
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    static bool _is_common_password(const std::string& pw)
+    {
+        std::string low = _to_lower(pw);
+        if (_matches_with_leet(low, &_in_common_pw)) return true;
+        std::string rev = _reverse(low);
+        if (rev != low && _in_common_pw(rev)) return true;
+        return false;
+    }
+
+    static bool _is_dictionary_based(const std::string& pw)
+    {
+        std::string base = _extract_base_word(pw);
+        if (base.size() < 3) return false;
+        if (_matches_with_leet(base, &_in_common_word)) return true;
+        if (_matches_with_leet(base, &_in_common_pw))   return true;
+        std::string col = _collapse_repeats(base);
+        if (col != base && col.size() >= 3 &&
+            (_in_common_word(col) || _in_common_pw(col))) return true;
+        return false;
+    }
+
     // Password strength
     PwStrength analyze_password(const std::string& pw)
     {
@@ -275,6 +433,12 @@ namespace helpers
         }
         r.repeatedPattern = repeatedPattern;
 
+        // Keyboard walks + known-common + dictionary-based (ported from pw-windows).
+        // isDictWord gated on !isCommonPwd so a known-common password doesn't double-flag.
+        r.keyboardWalk = _is_keyboard_walk(pw);
+        r.isCommonPwd  = _is_common_password(pw);
+        r.isDictWord   = !r.isCommonPwd && _is_dictionary_based(pw);
+
         // Scoring with penalties
         if (r.entropy_bits < 28 || r.allSame || r.shortPwd || repeatedPattern) r.score = 0;
         else if (r.entropy_bits < 36 || classes == 1) r.score = 1;
@@ -288,6 +452,14 @@ namespace helpers
         // Penalty: no symbols or no mixed case caps at max 3
         if (!r.hasSymbol && r.score > 3) r.score = 3;
         if ((!r.hasUpper || !r.hasLower) && r.score > 3) r.score = 3;
+
+        // Semantic penalties (match pw-windows weighting):
+        //   keyboardWalk -2 — "qwerty"-family
+        //   isDictWord   -2 — base word is dictionary / name
+        //   isCommonPwd  -3 — already appears in SecLists top-100k
+        if (r.keyboardWalk) r.score = std::max(0, r.score - 2);
+        if (r.isDictWord)   r.score = std::max(0, r.score - 2);
+        if (r.isCommonPwd)  r.score = std::max(0, r.score - 3);
 
         return r;
     }

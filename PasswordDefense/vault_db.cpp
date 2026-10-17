@@ -749,6 +749,19 @@ namespace vault_db {
         return set_sync_state("encryption_salt", enc::bytes_to_hex(salt));
     }
 
+    std::vector<uint8_t> get_key_check()
+    {
+        std::string hex = get_sync_state("key_check");
+        if (hex.empty()) return {};
+        return enc::hex_to_bytes(hex);
+    }
+
+    bool set_key_check(const std::vector<uint8_t>& blob)
+    {
+        if (blob.empty()) return false;
+        return set_sync_state("key_check", enc::bytes_to_hex(blob));
+    }
+
     std::string get_vault_slug()
     {
         return get_sync_state("vault_slug");

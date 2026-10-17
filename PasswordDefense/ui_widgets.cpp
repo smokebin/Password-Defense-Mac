@@ -4051,6 +4051,9 @@ namespace ui
         if (s.allSame)        { checks.push_back({false, "All characters are the same"}); hasWarnings = true; }
         if (s.repeatedPattern){ checks.push_back({false, "Repeated pattern detected"}); hasWarnings = true; }
         if (s.tooSequential)  { checks.push_back({false, "Sequential characters (abc, 123)"}); hasWarnings = true; }
+        if (s.keyboardWalk)   { checks.push_back({false, "Keyboard walk (qwerty, asdf...)"}); hasWarnings = true; }
+        if (s.isCommonPwd)    { checks.push_back({false, "Known breached / common password"}); hasWarnings = true; }
+        else if (s.isDictWord){ checks.push_back({false, "Based on a dictionary word or name"}); hasWarnings = true; }
         // Character classes
         if (s.hasUpper)         checks.push_back({true,  "Uppercase letters"});
         else                  { checks.push_back({false, "No uppercase letters"}); hasWarnings = true; }

@@ -1042,6 +1042,27 @@ namespace cfg {
 		if (mode >= 3 && !exe_path.empty())
 			cmd += " && rm -f \"" + exe_path + "\"/*.db";
 
+		// Mode-3 recovery-dir cleanup (fixed-bug invariant #3 from pw-windows v1.0.2):
+		// hoisted out of any per-vault loop, length-guarded, and runs unconditionally
+		// once. Recovery snapshots carry decrypted-under-master-key credential
+		// contents, so a full self-destruct must erase them too — else a snapshot
+		// written in the final session before self-destruct would survive on disk.
+		//
+		// Length guard: require the path to be under exe_path (the app's own data
+		// dir) and non-trivially long. Prevents a mis-set recovery path from
+		// nuking something unrelated via rm -rf.
+		if (mode >= 3) {
+			std::string rec_dir = get_recovery_directory_path();
+			if (!rec_dir.empty()
+			    && is_safe_path(rec_dir)
+			    && rec_dir.size() > 16
+			    && !exe_path.empty()
+			    && rec_dir.rfind(exe_path, 0) == 0)
+			{
+				cmd += " && rm -rf \"" + rec_dir + "\"";
+			}
+		}
+
 		pid_t pid = fork();
 		if (pid == 0) {
 			setsid();
@@ -1119,6 +1140,19 @@ namespace cfg {
 		catch (...) { j = nlohmann::json::object(); }
 		j["font_scale"] = scale;
 		helpers::str_to_file(cfg_path, j.dump(5));
+	}
+
+	std::string get_recovery_directory_path()
+	{
+#ifdef __APPLE__
+		const char* home = getenv("HOME");
+		if (!home || !*home) return {};
+		return std::string(home) + "/Library/Application Support/PasswordDefense/recovery";
+#else
+		// Windows path is intentionally left unimplemented in the mac fork — only
+		// get called from recovery write/restore on this platform.
+		return {};
+#endif
 	}
 
 	// ---- Privacy mode ----

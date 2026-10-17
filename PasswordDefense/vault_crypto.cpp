@@ -149,6 +149,29 @@ namespace enc {
     }
 
     // ----------------------------
+    // Key check (ported from pw-windows @ 3f17c0a)
+    //
+    // Dedicated AAD so a key-check blob can never be confused with (or swapped
+    // for) a credential, 2FA or recovery blob.
+    // ----------------------------
+    static const char* const kKeyCheckPlaintext = "PasswordDefense:key-check:v1";
+    static const char* const kKeyCheckAad       = "vault-key-check";
+
+    std::vector<uint8_t> make_key_check(const std::vector<uint8_t>& master_key)
+    {
+        return encrypt_credential(kKeyCheckPlaintext, master_key, kKeyCheckAad);
+    }
+
+    bool verify_key_check(const std::vector<uint8_t>& blob, const std::vector<uint8_t>& master_key)
+    {
+        // the Poly1305 tag check inside decrypt is the real test; wrong key -> ""
+        std::string pt = decrypt_credential(blob, master_key, kKeyCheckAad);
+        const bool ok = (pt == kKeyCheckPlaintext);
+        secure_zero(pt);
+        return ok;
+    }
+
+    // ----------------------------
     // Legacy encryption (no AAD) - for migration only
     // ----------------------------
     std::vector<uint8_t> encrypt_credential_legacy(
