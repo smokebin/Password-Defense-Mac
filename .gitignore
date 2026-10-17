@@ -1,0 +1,47 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon
+._*
+
+# Xcode build artifacts
+build/
+DerivedData/
+*.xcuserdatad/
+xcuserdata/
+*.xcuserstate
+*.moved-aside
+*.hmap
+*.dmg
+*.zip
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.swiftpm/
+.build/
+Package.resolved
+
+# Provisioning + signing material
+*.mobileprovision
+*.provisionprofile
+*.p12
+*.cer
+*.certSigningRequest
+
+# Secrets / config
+secrets/
+*.env
+*.env.local
+
+# Logs / scratch
+*.log
+*.tmp
+crash-*.txt
+
+# Editor noise
+.vscode/
+.idea/
+*.swp
+*~

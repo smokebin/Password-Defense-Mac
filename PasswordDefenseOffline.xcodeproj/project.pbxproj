@@ -1,0 +1,497 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		044E91732F639C3A00793810 /* libsqlite3.tbd in Frameworks */ = {isa = PBXBuildFile; fileRef = 044E91722F639C3A00793810 /* libsqlite3.tbd */; };
+		044E920C2F639E1A00793810 /* libsodium.26.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 044E91F32F639D8C00793810 /* libsodium.26.dylib */; };
+		044E920D2F63A60100793810 /* libssl.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 044E920A2F639DD900793810 /* libssl.3.dylib */; };
+		044E920E2F63A62200793810 /* libcrypto.3.dylib in Frameworks */ = {isa = PBXBuildFile; fileRef = 044E92072F639DD900793810 /* libcrypto.3.dylib */; };
+		044E93112F63B3F400793810 /* UniformTypeIdentifiers.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 044E93102F63B3F400793810 /* UniformTypeIdentifiers.framework */; };
+		04D48F4C2F62828F004C61CC /* Cocoa.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 04D48F4B2F62828F004C61CC /* Cocoa.framework */; };
+		04D48F4E2F62829B004C61CC /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 04D48F4D2F62829B004C61CC /* Metal.framework */; };
+		04D48F502F6282A2004C61CC /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 04D48F4F2F6282A2004C61CC /* GameController.framework */; };
+		04D48F522F6282AB004C61CC /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 04D48F512F6282AB004C61CC /* MetalKit.framework */; };
+		04D48F542F6282BA004C61CC /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 04D48F532F6282BA004C61CC /* QuartzCore.framework */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		044E91722F639C3A00793810 /* libsqlite3.tbd */ = {isa = PBXFileReference; lastKnownFileType = "sourcecode.text-based-dylib-definition"; name = libsqlite3.tbd; path = usr/lib/libsqlite3.tbd; sourceTree = SDKROOT; };
+		044E91F32F639D8C00793810 /* libsodium.26.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; name = libsodium.26.dylib; path = ../../../../../../../opt/homebrew/Cellar/libsodium/1.0.21/lib/libsodium.26.dylib; sourceTree = "<group>"; };
+		044E91F52F639DC400793810 /* LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; name = LICENSE.txt; path = "../../../../../../../opt/homebrew/Cellar/openssl@3/3.6.1/LICENSE.txt"; sourceTree = "<group>"; };
+		044E91F72F639DD900793810 /* OpenSSLConfig.cmake */ = {isa = PBXFileReference; lastKnownFileType = text; path = OpenSSLConfig.cmake; sourceTree = "<group>"; };
+		044E91F82F639DD900793810 /* OpenSSLConfigVersion.cmake */ = {isa = PBXFileReference; lastKnownFileType = text; path = OpenSSLConfigVersion.cmake; sourceTree = "<group>"; };
+		044E91FB2F639DD900793810 /* capi.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.bundle"; path = capi.dylib; sourceTree = "<group>"; };
+		044E91FC2F639DD900793810 /* loader_attic.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.bundle"; path = loader_attic.dylib; sourceTree = "<group>"; };
+		044E91FD2F639DD900793810 /* padlock.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.bundle"; path = padlock.dylib; sourceTree = "<group>"; };
+		044E91FF2F639DD900793810 /* legacy.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.bundle"; path = legacy.dylib; sourceTree = "<group>"; };
+		044E92012F639DD900793810 /* libcrypto.pc */ = {isa = PBXFileReference; lastKnownFileType = text; path = libcrypto.pc; sourceTree = "<group>"; };
+		044E92022F639DD900793810 /* libssl.pc */ = {isa = PBXFileReference; lastKnownFileType = text; path = libssl.pc; sourceTree = "<group>"; };
+		044E92032F639DD900793810 /* openssl.pc */ = {isa = PBXFileReference; lastKnownFileType = text; path = openssl.pc; sourceTree = "<group>"; };
+		044E92052F639DD900793810 /* libcrypto.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libcrypto.a; sourceTree = "<group>"; };
+		044E92062F639DD900793810 /* libcrypto.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libcrypto.dylib; sourceTree = "<group>"; };
+		044E92072F639DD900793810 /* libcrypto.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libcrypto.3.dylib; sourceTree = "<group>"; };
+		044E92082F639DD900793810 /* libssl.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libssl.a; sourceTree = "<group>"; };
+		044E92092F639DD900793810 /* libssl.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libssl.dylib; sourceTree = "<group>"; };
+		044E920A2F639DD900793810 /* libssl.3.dylib */ = {isa = PBXFileReference; lastKnownFileType = "compiled.mach-o.dylib"; path = libssl.3.dylib; sourceTree = "<group>"; };
+		044E93102F63B3F400793810 /* UniformTypeIdentifiers.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UniformTypeIdentifiers.framework; path = System/Library/Frameworks/UniformTypeIdentifiers.framework; sourceTree = SDKROOT; };
+		04D48F012F626E64004C61CC /* PasswordDefense.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = PasswordDefense.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		04D48F4B2F62828F004C61CC /* Cocoa.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Cocoa.framework; path = System/Library/Frameworks/Cocoa.framework; sourceTree = SDKROOT; };
+		04D48F4D2F62829B004C61CC /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
+		04D48F4F2F6282A2004C61CC /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = System/Library/Frameworks/GameController.framework; sourceTree = SDKROOT; };
+		04D48F512F6282AB004C61CC /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
+		04D48F532F6282BA004C61CC /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		044E90752F62A70D00793810 /* Exceptions for "PasswordDefense" folder in "PasswordDefense" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				application_stub.mm,
+				credential_ops_stub.mm,
+				save_stub.mm,
+				totp_stub.mm,
+				twofa_ops_stub.mm,
+			);
+			target = 04D48F002F626E64004C61CC /* PasswordDefense */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		04D48F032F626E64004C61CC /* PasswordDefense */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				044E90752F62A70D00793810 /* Exceptions for "PasswordDefense" folder in "PasswordDefense" target */,
+			);
+			path = PasswordDefense;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		04D48EFE2F626E64004C61CC /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				044E93112F63B3F400793810 /* UniformTypeIdentifiers.framework in Frameworks */,
+				044E920E2F63A62200793810 /* libcrypto.3.dylib in Frameworks */,
+				044E920D2F63A60100793810 /* libssl.3.dylib in Frameworks */,
+				044E920C2F639E1A00793810 /* libsodium.26.dylib in Frameworks */,
+				044E91732F639C3A00793810 /* libsqlite3.tbd in Frameworks */,
+				04D48F542F6282BA004C61CC /* QuartzCore.framework in Frameworks */,
+				04D48F522F6282AB004C61CC /* MetalKit.framework in Frameworks */,
+				04D48F502F6282A2004C61CC /* GameController.framework in Frameworks */,
+				04D48F4E2F62829B004C61CC /* Metal.framework in Frameworks */,
+				04D48F4C2F62828F004C61CC /* Cocoa.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		044E91F92F639DD900793810 /* OpenSSL */ = {
+			isa = PBXGroup;
+			children = (
+				044E91F72F639DD900793810 /* OpenSSLConfig.cmake */,
+				044E91F82F639DD900793810 /* OpenSSLConfigVersion.cmake */,
+			);
+			path = OpenSSL;
+			sourceTree = "<group>";
+		};
+		044E91FA2F639DD900793810 /* cmake */ = {
+			isa = PBXGroup;
+			children = (
+				044E91F92F639DD900793810 /* OpenSSL */,
+			);
+			path = cmake;
+			sourceTree = "<group>";
+		};
+		044E91FE2F639DD900793810 /* engines-3 */ = {
+			isa = PBXGroup;
+			children = (
+				044E91FB2F639DD900793810 /* capi.dylib */,
+				044E91FC2F639DD900793810 /* loader_attic.dylib */,
+				044E91FD2F639DD900793810 /* padlock.dylib */,
+			);
+			path = "engines-3";
+			sourceTree = "<group>";
+		};
+		044E92002F639DD900793810 /* ossl-modules */ = {
+			isa = PBXGroup;
+			children = (
+				044E91FF2F639DD900793810 /* legacy.dylib */,
+			);
+			path = "ossl-modules";
+			sourceTree = "<group>";
+		};
+		044E92042F639DD900793810 /* pkgconfig */ = {
+			isa = PBXGroup;
+			children = (
+				044E92012F639DD900793810 /* libcrypto.pc */,
+				044E92022F639DD900793810 /* libssl.pc */,
+				044E92032F639DD900793810 /* openssl.pc */,
+			);
+			path = pkgconfig;
+			sourceTree = "<group>";
+		};
+		044E920B2F639DD900793810 /* lib */ = {
+			isa = PBXGroup;
+			children = (
+				044E91FA2F639DD900793810 /* cmake */,
+				044E91FE2F639DD900793810 /* engines-3 */,
+				044E92002F639DD900793810 /* ossl-modules */,
+				044E92042F639DD900793810 /* pkgconfig */,
+				044E92052F639DD900793810 /* libcrypto.a */,
+				044E92062F639DD900793810 /* libcrypto.dylib */,
+				044E92072F639DD900793810 /* libcrypto.3.dylib */,
+				044E92082F639DD900793810 /* libssl.a */,
+				044E92092F639DD900793810 /* libssl.dylib */,
+				044E920A2F639DD900793810 /* libssl.3.dylib */,
+			);
+			name = lib;
+			path = "../../../../../../../opt/homebrew/Cellar/openssl@3/3.6.1/lib";
+			sourceTree = "<group>";
+		};
+		04D48EF82F626E64004C61CC = {
+			isa = PBXGroup;
+			children = (
+				04D48F032F626E64004C61CC /* PasswordDefense */,
+				04D48F4A2F62828E004C61CC /* Frameworks */,
+				04D48F022F626E64004C61CC /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		04D48F022F626E64004C61CC /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				04D48F012F626E64004C61CC /* PasswordDefense.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		04D48F4A2F62828E004C61CC /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				044E93102F63B3F400793810 /* UniformTypeIdentifiers.framework */,
+				044E920B2F639DD900793810 /* lib */,
+				044E91F52F639DC400793810 /* LICENSE.txt */,
+				044E91F32F639D8C00793810 /* libsodium.26.dylib */,
+				044E91722F639C3A00793810 /* libsqlite3.tbd */,
+				04D48F532F6282BA004C61CC /* QuartzCore.framework */,
+				04D48F512F6282AB004C61CC /* MetalKit.framework */,
+				04D48F4F2F6282A2004C61CC /* GameController.framework */,
+				04D48F4D2F62829B004C61CC /* Metal.framework */,
+				04D48F4B2F62828F004C61CC /* Cocoa.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		04D48F002F626E64004C61CC /* PasswordDefense */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 04D48F132F626E65004C61CC /* Build configuration list for PBXNativeTarget "PasswordDefense" */;
+			buildPhases = (
+				04D48EFD2F626E64004C61CC /* Sources */,
+				04D48EFE2F626E64004C61CC /* Frameworks */,
+				04D48EFF2F626E64004C61CC /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				04D48F032F626E64004C61CC /* PasswordDefense */,
+			);
+			name = PasswordDefense;
+			packageProductDependencies = (
+			);
+			productName = PasswordDefense;
+			productReference = 04D48F012F626E64004C61CC /* PasswordDefense.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		04D48EF92F626E64004C61CC /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2630;
+				TargetAttributes = {
+					04D48F002F626E64004C61CC = {
+						CreatedOnToolsVersion = 26.3;
+					};
+				};
+			};
+			buildConfigurationList = 04D48EFC2F626E64004C61CC /* Build configuration list for PBXProject "PasswordDefenseOffline" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 04D48EF82F626E64004C61CC;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 04D48F022F626E64004C61CC /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				04D48F002F626E64004C61CC /* PasswordDefense */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		04D48EFF2F626E64004C61CC /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		04D48EFD2F626E64004C61CC /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		04D48F112F626E65004C61CC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				"GCC_PREPROCESSOR_DEFINITIONS[arch=*]" = "PD_OFFLINE_BUILD=1";
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+		04D48F122F626E65004C61CC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				"GCC_PREPROCESSOR_DEFINITIONS[arch=*]" = "PD_OFFLINE_BUILD=1";
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MACOSX_DEPLOYMENT_TARGET = 15.6;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		04D48F142F626E65004C61CC /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = LUCS776AG5;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../",
+					/opt/homebrew/opt/libsodium/include,
+					"/opt/homebrew/opt/openssl@3/include",
+					/opt/homebrew/include,
+				);
+				INFOPLIST_KEY_CFBundleDisplayName = "Password Defense Offline";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					/opt/homebrew/Cellar/libsodium/1.0.21/lib,
+					"/opt/homebrew/Cellar/openssl@3/3.6.1/lib",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.StackedSoftware.PasswordDefenseOffline;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Debug;
+		};
+		04D48F152F626E65004C61CC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 2;
+				DEVELOPMENT_TEAM = LUCS776AG5;
+				ENABLE_APP_SANDBOX = NO;
+				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = (
+					"$(SRCROOT)/../../",
+					/opt/homebrew/opt/libsodium/include,
+					"/opt/homebrew/opt/openssl@3/include",
+					/opt/homebrew/include,
+				);
+				INFOPLIST_KEY_CFBundleDisplayName = "Password Defense Offline";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSMainStoryboardFile = Main;
+				INFOPLIST_KEY_NSPrincipalClass = NSApplication;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					/opt/homebrew/Cellar/libsodium/1.0.21/lib,
+					"/opt/homebrew/Cellar/openssl@3/3.6.1/lib",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.5;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.StackedSoftware.PasswordDefenseOffline;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				REGISTER_APP_GROUPS = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		04D48EFC2F626E64004C61CC /* Build configuration list for PBXProject "PasswordDefenseOffline" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				04D48F112F626E65004C61CC /* Debug */,
+				04D48F122F626E65004C61CC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		04D48F132F626E65004C61CC /* Build configuration list for PBXNativeTarget "PasswordDefense" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				04D48F142F626E65004C61CC /* Debug */,
+				04D48F152F626E65004C61CC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 04D48EF92F626E64004C61CC /* Project object */;
+}
