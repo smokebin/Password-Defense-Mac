@@ -54,6 +54,7 @@
 				application_stub.mm,
 				credential_ops_stub.mm,
 				save_stub.mm,
+				test_invariants.cpp,
 				totp_stub.mm,
 				twofa_ops_stub.mm,
 			);

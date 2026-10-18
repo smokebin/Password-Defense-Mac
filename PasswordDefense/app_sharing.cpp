@@ -71,6 +71,7 @@ std::string serialize_credential_for_share(const Credential& c, const std::strin
         j["card_expiry"] = c.card_expiry;
         j["card_cvv"] = c.card_cvv;
         j["card_brand"] = c.card_brand;
+        j["card_address"] = c.card_address;
         j["card_city"] = c.card_city;
         j["card_postal_code"] = c.card_postal_code;
         j["notes"] = c.notes;

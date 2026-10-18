@@ -99,6 +99,19 @@ namespace cred_ops {
         c.address       = j.value("address", "");
         c.phone         = j.value("phone", "");
 
+        // One-time migration for legacy credit-card entries whose billing
+        // address lived in the Identity-type `.address` field (pre-fork
+        // vaults imported from an older pw-mac-cloud build). Fold into
+        // the dedicated card_address if it's empty; next save persists
+        // under the new field and clears the legacy one.
+        if (c.type == CredType::CreditCard
+            && c.card_address.empty()
+            && !c.address.empty())
+        {
+            c.card_address = c.address;
+            c.address.clear();
+        }
+
         c.tags.clear();
         for (const auto& t : j.value("tags", nlohmann::json::array())) {
             if (t.is_string() && !t.get<std::string>().empty())

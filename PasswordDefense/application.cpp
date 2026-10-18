@@ -5799,7 +5799,7 @@ static void render_unlocked_screen()
             csv += "Type,Title,Username,Password,Email,URL,Group,Notes,Favorite,Pinned,"
                    "CardholderName,CardNumber,CardExpiry,CardCVV,CardBrand,"
                    "FullName,IDType,IDNumber,DateOfBirth,ExpiryDate,Country,Address,Phone,"
-                   "Created,Modified,ExpiresAt,CardCity,CardPostalCode\n";
+                   "Created,Modified,ExpiresAt,CardCity,CardPostalCode,CardAddress\n";
 
             int count = 0;
             for (const auto& c : v.creds) {
@@ -5830,9 +5830,9 @@ static void render_unlocked_screen()
                      + csv_quote(helpers::unix_ms_to_iso8601(c.created_at_ms)) + ','
                      + csv_quote(helpers::unix_ms_to_iso8601(c.updated_at_ms)) + ','
                      + (c.expires_at_ms > 0 ? csv_quote(helpers::unix_ms_to_iso8601(c.expires_at_ms)) : "") + ','
-                     + csv_quote(c.card_address) + ','
                      + csv_quote(c.card_city) + ','
-                     + csv_quote(c.card_postal_code) + '\n';
+                     + csv_quote(c.card_postal_code) + ','
+                     + csv_quote(c.card_address) + '\n';
                 count++;
             }
 

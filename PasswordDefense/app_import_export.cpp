@@ -445,6 +445,7 @@ CsvImportResult parse_csv_import(const std::string& file_content)
             // are appended after that to keep older CSV exports importable.
             c.card_city        = get_field(fields, 26);
             c.card_postal_code = get_field(fields, 27);
+            c.card_address     = get_field(fields, 28);
             break;
         }
         case CsvFormat::Chrome:
@@ -545,6 +546,7 @@ CsvImportResult parse_csv_import(const std::string& file_content)
         cap(c.cardholder_name, kMaxField);
         cap(c.card_city, kMaxField);
         cap(c.card_postal_code, kMaxField);
+        cap(c.card_address, kMaxField);
         cap(c.full_name, kMaxField);
         cap(c.id_type, kMaxField);
         cap(c.id_number, kMaxField);

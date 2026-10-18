@@ -151,6 +151,59 @@ static void test_credential_serialization_exhaustive_symmetry()
 }
 
 // ============================================================================
+// INVARIANT 1b: Legacy card_address Migration
+// Verifies that a legacy credit-card JSON blob (no "card_address" key,
+// "address" populated, type == CreditCard) is folded into the dedicated
+// `card_address` field on deserialization and the legacy `.address` is cleared.
+// Guards against the migration becoming dead code (symmetric round-trip tests
+// never exercise the legacy shape).
+// ============================================================================
+static void test_card_address_legacy_migration()
+{
+    std::cout << "[*] Running Test 1b: Legacy card_address migration...\n";
+
+    nlohmann::json legacy = {
+        {"type", static_cast<int>(CredType::CreditCard)},
+        {"title", "Chase Sapphire"},
+        {"cardholder_name", "Jane Doe"},
+        {"card_number", "4111 1111 1111 1111"},
+        {"address", "456 Legacy Lane"}
+    };
+
+    Credential c;
+    cred_ops::from_json(legacy, c);
+
+    assert(c.type == CredType::CreditCard);
+    assert(c.card_address == "456 Legacy Lane"); // folded over
+    assert(c.address.empty());                   // legacy field cleared
+
+    // Non-CreditCard rows must NOT be migrated — Identity's address stays put.
+    nlohmann::json ident = {
+        {"type", static_cast<int>(CredType::Identity)},
+        {"title", "Passport"},
+        {"address", "789 Identity Ave"}
+    };
+    Credential c2;
+    cred_ops::from_json(ident, c2);
+    assert(c2.type == CredType::Identity);
+    assert(c2.address == "789 Identity Ave");    // preserved
+    assert(c2.card_address.empty());             // not populated
+
+    // Already-migrated CreditCard rows must keep card_address intact.
+    nlohmann::json already = {
+        {"type", static_cast<int>(CredType::CreditCard)},
+        {"card_address", "New Field 1 Way"},
+        {"address", "Legacy Shouldnt Appear"}
+    };
+    Credential c3;
+    cred_ops::from_json(already, c3);
+    assert(c3.card_address == "New Field 1 Way");
+    // address is left as read (migration only fires when card_address empty).
+
+    std::cout << "    [+] Passed: legacy address folded to card_address; Identity untouched.\n";
+}
+
+// ============================================================================
 // INVARIANT 2: Reconcile After Undo (Empty Trash -> No Ghost Resurrection)
 // Verifies right-removal of purged items and ledger-not-dirtied assertions
 // ============================================================================
@@ -378,13 +431,14 @@ int main()
     std::cout << "========================================\n";
 
     test_credential_serialization_exhaustive_symmetry();
+    test_card_address_legacy_migration();
     test_reconcile_after_undo_empty_trash();
     test_save_fail_recovery_roundtrip();
     test_key_check_empty_vault_wrong_password_refused();
     test_ghost_vault_lock_escape();
 
     std::cout << "========================================\n";
-    std::cout << "ALL 5 DATA-SAFETY INVARIANTS PASSED!\n";
+    std::cout << "ALL 6 DATA-SAFETY INVARIANTS PASSED!\n";
     std::cout << "========================================\n";
     return 0;
 }
