@@ -88,14 +88,18 @@ static void test_credential_serialization_exhaustive_symmetry()
     c1.card_city        = "San Francisco";
     c1.card_postal_code = "94105";
 
-    // Identity fields
+    // Identity fields.
+    // NOTE: c1.address matches c1.card_address because to_json dual-writes
+    // card_address → address for CreditCard rows. A different value here
+    // would get overwritten on the round-trip; the dual-write invariant is
+    // explicitly verified in test_card_address_dual_write_mirrors_address.
     c1.full_name        = "Alice Jane Smith";
     c1.id_type          = "Passport";
     c1.id_number        = "A12345678";
     c1.date_of_birth    = "1990-01-01";
     c1.expiry_date      = "2030-01-01";
     c1.country          = "USA";
-    c1.address          = "123 Market St";
+    c1.address          = "123 Market St, Suite 400";
     c1.phone            = "+15551234567";
 
     // History & flags
@@ -151,16 +155,18 @@ static void test_credential_serialization_exhaustive_symmetry()
 }
 
 // ============================================================================
-// INVARIANT 1b: Legacy card_address Migration
+// INVARIANT 1b: Legacy card_address Migration (COPY-ONLY)
 // Verifies that a legacy credit-card JSON blob (no "card_address" key,
-// "address" populated, type == CreditCard) is folded into the dedicated
-// `card_address` field on deserialization and the legacy `.address` is cleared.
-// Guards against the migration becoming dead code (symmetric round-trip tests
-// never exercise the legacy shape).
+// "address" populated, type == CreditCard) is COPIED into the dedicated
+// card_address field on deserialization WITHOUT clearing the legacy
+// `.address` key. Three deployed clients (iOS, Android, web vault) still
+// read `.address` and drop unknown keys on save — clearing here would
+// erase the billing address on every device the next time one of those
+// clients syncs the row.
 // ============================================================================
-static void test_card_address_legacy_migration()
+static void test_card_address_legacy_migration_copy_only()
 {
-    std::cout << "[*] Running Test 1b: Legacy card_address migration...\n";
+    std::cout << "[*] Running Test 1b: Legacy card_address migration (copy-only)...\n";
 
     nlohmann::json legacy = {
         {"type", static_cast<int>(CredType::CreditCard)},
@@ -175,7 +181,7 @@ static void test_card_address_legacy_migration()
 
     assert(c.type == CredType::CreditCard);
     assert(c.card_address == "456 Legacy Lane"); // folded over
-    assert(c.address.empty());                   // legacy field cleared
+    assert(c.address == "456 Legacy Lane");      // preserved — old clients still read this
 
     // Non-CreditCard rows must NOT be migrated — Identity's address stays put.
     nlohmann::json ident = {
@@ -198,9 +204,123 @@ static void test_card_address_legacy_migration()
     Credential c3;
     cred_ops::from_json(already, c3);
     assert(c3.card_address == "New Field 1 Way");
-    // address is left as read (migration only fires when card_address empty).
+    assert(c3.address == "Legacy Shouldnt Appear"); // migration only fires when card_address empty
 
-    std::cout << "    [+] Passed: legacy address folded to card_address; Identity untouched.\n";
+    std::cout << "    [+] Passed: card_address copied; .address preserved; Identity untouched.\n";
+}
+
+// ============================================================================
+// INVARIANT 1c: Dual-write mirrors card_address → address on CreditCard
+// Verifies that to_json emits the billing value under BOTH `card_address`
+// and `address` keys so clients that don't know card_address still see it.
+// Also verifies Identity rows DO NOT get the mirror (c.address is a real
+// Identity-type field there and must round-trip verbatim).
+// ============================================================================
+static void test_card_address_dual_write_mirrors_address()
+{
+    std::cout << "[*] Running Test 1c: Dual-write mirrors card_address -> address...\n";
+
+    // CreditCard: dual-write fires, address mirrors card_address.
+    Credential card;
+    card.type = CredType::CreditCard;
+    card.card_address = "99 Billing Blvd";
+    card.address = "ignored stale value"; // dual-write should overwrite this on serialize
+    nlohmann::json j_card = cred_ops::to_json(card);
+    assert(j_card.value("card_address", "") == "99 Billing Blvd");
+    assert(j_card.value("address", "")      == "99 Billing Blvd"); // mirrored
+
+    // CreditCard with empty card_address: dual-write doesn't fire; address passes through.
+    Credential empty;
+    empty.type = CredType::CreditCard;
+    empty.address = "legacy fallback"; // simulates pre-migration raw blob
+    nlohmann::json j_empty = cred_ops::to_json(empty);
+    assert(j_empty.value("card_address", "") == "");
+    assert(j_empty.value("address", "")      == "legacy fallback"); // untouched
+
+    // Identity: dual-write MUST NOT touch .address (it's a real Identity field).
+    Credential ident;
+    ident.type = CredType::Identity;
+    ident.address = "100 Identity Rd";
+    ident.card_address = "should not leak"; // not valid on Identity, but defensive check
+    nlohmann::json j_ident = cred_ops::to_json(ident);
+    assert(j_ident.value("address", "") == "100 Identity Rd"); // Identity address intact
+
+    std::cout << "    [+] Passed: dual-write only for CreditCard; Identity .address preserved.\n";
+}
+
+// ============================================================================
+// INVARIANT 1d: Ping-pong survival through an unknown-field-dropping client
+// Simulates the full cross-platform sync loop:
+//   1. Mac writes a CreditCard with card_address="Y" → to_json dual-writes
+//      {address:"Y", card_address:"Y"}.
+//   2. Old client (iOS/Android/web) fetches, drops the unknown
+//      `card_address` key, saves back → blob is now {address:"Y"}.
+//   3. Mac re-fetches, from_json's copy-only migration folds .address
+//      back into card_address.
+// The user's billing-address edit survives on every device. The offline
+// fork doesn't sync, but keeps the invariant so vaults imported from
+// cloud behave identically.
+// ============================================================================
+static void test_card_address_ping_pong_survives_old_client()
+{
+    std::cout << "[*] Running Test 1d: Ping-pong survival through old client...\n";
+
+    // Step 1: Mac saves card_address="Y"; dual-write mirrors into .address.
+    Credential mac_write;
+    mac_write.type = CredType::CreditCard;
+    mac_write.card_address = "Y - Mac user edit";
+    nlohmann::json blob_from_mac = cred_ops::to_json(mac_write);
+    assert(blob_from_mac.value("card_address", "") == "Y - Mac user edit");
+    assert(blob_from_mac.value("address", "")      == "Y - Mac user edit");
+
+    // Step 2: Old client fetches, re-serializes without the unknown key.
+    nlohmann::json blob_from_old_client = blob_from_mac;
+    blob_from_old_client.erase("card_address");
+    assert(!blob_from_old_client.contains("card_address"));
+    assert(blob_from_old_client.value("address", "") == "Y - Mac user edit");
+
+    // Step 3: Mac re-reads the degraded blob; migration folds .address back.
+    Credential mac_reread;
+    cred_ops::from_json(blob_from_old_client, mac_reread);
+    assert(mac_reread.card_address == "Y - Mac user edit"); // survived round-trip
+    assert(mac_reread.address == "Y - Mac user edit");      // still preserved (copy-only)
+
+    std::cout << "    [+] Passed: Mac edit survived through unknown-field-dropping client.\n";
+}
+
+// ============================================================================
+// INVARIANT 1e: Migration is idempotent
+// Running from_json twice over the same blob must produce the same result.
+// Guards against a future "clear-after-migrate" tweak that would silently
+// erase the legacy field on the second read.
+// ============================================================================
+static void test_card_address_migration_idempotent()
+{
+    std::cout << "[*] Running Test 1e: Migration idempotence...\n";
+
+    nlohmann::json legacy = {
+        {"type", static_cast<int>(CredType::CreditCard)},
+        {"address", "321 Idempotent Way"}
+    };
+
+    Credential c1, c2;
+    cred_ops::from_json(legacy, c1);
+    cred_ops::from_json(legacy, c2);
+
+    assert(c1.card_address == c2.card_address);
+    assert(c1.address      == c2.address);
+    assert(c1.card_address == "321 Idempotent Way");
+    assert(c1.address      == "321 Idempotent Way");
+
+    // Also: running from_json back-to-back on the SAME object (overwriting
+    // in-place) must settle at the same values.
+    Credential c3;
+    cred_ops::from_json(legacy, c3);
+    cred_ops::from_json(legacy, c3);
+    assert(c3.card_address == "321 Idempotent Way");
+    assert(c3.address      == "321 Idempotent Way");
+
+    std::cout << "    [+] Passed: migration is idempotent.\n";
 }
 
 // ============================================================================
@@ -431,14 +551,17 @@ int main()
     std::cout << "========================================\n";
 
     test_credential_serialization_exhaustive_symmetry();
-    test_card_address_legacy_migration();
+    test_card_address_legacy_migration_copy_only();
+    test_card_address_dual_write_mirrors_address();
+    test_card_address_ping_pong_survives_old_client();
+    test_card_address_migration_idempotent();
     test_reconcile_after_undo_empty_trash();
     test_save_fail_recovery_roundtrip();
     test_key_check_empty_vault_wrong_password_refused();
     test_ghost_vault_lock_escape();
 
     std::cout << "========================================\n";
-    std::cout << "ALL 6 DATA-SAFETY INVARIANTS PASSED!\n";
+    std::cout << "ALL 9 DATA-SAFETY INVARIANTS PASSED!\n";
     std::cout << "========================================\n";
     return 0;
 }

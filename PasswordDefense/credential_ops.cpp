@@ -61,6 +61,16 @@ namespace cred_ops {
                 {"changed_at_ms", h.changed_at_ms}
             });
         }
+
+        // Dual-write for CreditCard rows: mirror card_address → address so
+        // clients that don't yet understand `card_address` still see the
+        // billing address under the legacy key. The field is semantically
+        // unused on CreditCard entries. Mirrors cloud's behavior exactly
+        // so vaults copied/exported between fork and cloud stay compatible.
+        if (c.type == CredType::CreditCard && !c.card_address.empty()) {
+            j["address"] = c.card_address;
+        }
+
         return j;
     }
 
@@ -99,17 +109,18 @@ namespace cred_ops {
         c.address       = j.value("address", "");
         c.phone         = j.value("phone", "");
 
-        // One-time migration for legacy credit-card entries whose billing
-        // address lived in the Identity-type `.address` field (pre-fork
-        // vaults imported from an older pw-mac-cloud build). Fold into
-        // the dedicated card_address if it's empty; next save persists
-        // under the new field and clears the legacy one.
+        // Copy-only migration for CreditCard rows: when the dedicated
+        // card_address field is missing/empty but the legacy `address`
+        // key is populated, fold it over. DO NOT clear `address` — three
+        // other clients in the cross-platform ecosystem (iOS, Android,
+        // web vault) still read from it and drop unknown keys on save.
+        // The fork is offline-only, but keeping the pattern identical to
+        // cloud so vaults migrated between the two never diverge.
         if (c.type == CredType::CreditCard
             && c.card_address.empty()
             && !c.address.empty())
         {
             c.card_address = c.address;
-            c.address.clear();
         }
 
         c.tags.clear();

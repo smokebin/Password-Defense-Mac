@@ -72,6 +72,10 @@ std::string serialize_credential_for_share(const Credential& c, const std::strin
         j["card_cvv"] = c.card_cvv;
         j["card_brand"] = c.card_brand;
         j["card_address"] = c.card_address;
+        // Dual-write: mirror card_address into the legacy `address` key so
+        // old clients decoding this share bundle still see the billing
+        // address. See cred_ops::to_json for rationale.
+        if (!c.card_address.empty()) j["address"] = c.card_address;
         j["card_city"] = c.card_city;
         j["card_postal_code"] = c.card_postal_code;
         j["notes"] = c.notes;
