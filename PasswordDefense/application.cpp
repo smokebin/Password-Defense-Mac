@@ -769,9 +769,12 @@ static void CheckBreachedPasswords(ui::ShellState& shell, const std::vector<Cred
             std::string prefix(hex, 5);
             std::string suffix(hex + 5);
 
-            // Query HIBP k-anonymity API
-            std::string path = "/range/" + prefix;
-            auto resp = win_http_request("GET", "api.pwnedpasswords.com", 443, true, path);
+            // Query HIBP k-anonymity API. On Mac this routes through a dedicated
+            // NSURLSession helper (breach_http_mac.mm) because the sync-layer
+            // win_http_request is a no-op in the offline build. Only the 5-char
+            // SHA-1 prefix leaves the device — k-anonymity preserved.
+            extern HttpResponse hibp_range_fetch(const std::string&);
+            auto resp = hibp_range_fetch(prefix);
 
             if (resp.success && resp.status_code == 200) {
                 // Parse: each line is "SUFFIX:COUNT\r\n"

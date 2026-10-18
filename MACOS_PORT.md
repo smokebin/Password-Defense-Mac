@@ -34,7 +34,7 @@ PasswordDefense is a cross-platform password manager originally built for Window
 │  application.cpp  – main state machine (225 KB)   │
 │  UI.cpp / ui_*.cpp – ImGui UI layer               │
 │  credential_ops   – CRUD operations               │
-│  vault_db / vault_crypto – SQLite + AES           │
+│  vault_db / vault_crypto – SQLite + XChaCha20     │
 │  sync_manager     – STUBBED (offline: no-op)      │
 │  local_server     – STUBBED (offline: no-op)      │
 │  save.cpp         – config, paths, self-destruct  │
@@ -71,7 +71,7 @@ PasswordDefense is a cross-platform password manager originally built for Window
 | `ui_modals.cpp` | Modals — trash bin, password generator, share, sync |
 | `credential_ops.cpp` | Credential CRUD, undo/redo |
 | `vault_db.cpp` | SQLite database abstraction |
-| `vault_crypto.cpp` | AES-256 vault encryption/decryption |
+| `vault_crypto.cpp` | XChaCha20-Poly1305 vault encryption/decryption (libsodium); Argon2id KDF |
 | `save.cpp` | Config file I/O, path setup, self-destruct handler |
 | `sync_manager_stub.mm` | **Offline no-op** replacing `sync_manager.cpp`. Every method reports "offline"; the free `win_http_request()` helper returns a benign failure. `sync_manager.cpp` is not in this repo. |
 | `local_server_stub.mm` | **Offline no-op** replacing `local_server.cpp`. No localhost server, no browser-extension API; `IsRunning()` is always false so UI branches skip cleanly. `local_server.cpp` is not in this repo. |
@@ -101,8 +101,9 @@ PasswordDefense is a cross-platform password manager originally built for Window
 | Library | Version | Purpose |
 |---------|---------|---------|
 | libsodium | 1.0.21 | Key derivation, hashing, encryption |
-| OpenSSL | 3.x | TLS for cpp-httplib. Still linked, but the offline build makes no live HTTPS client calls (sync/server stubbed; favicon uses NSURLSession). Can likely be dropped once the breach-check path is resolved — see [Online Features](#online-features-opt-in). |
 | SQLite3 | system | Vault database storage |
+
+OpenSSL is **not linked** on the offline Mac build. HTTPS calls use `NSURLSession` natively (favicon fetch, HIBP breach check), and `cpp-httplib` is included in-tree but has no includers in this target. One fewer dylib to bundle, sign, and notarize.
 
 ### Header-Only (embedded in project)
 
@@ -198,11 +199,11 @@ Two online features remain; both are **opt-in and OFF by default** (Settings →
 6. Thread-safe: `std::mutex` protects cache, pending, and failed sets
 7. Gated by `SetNetworkEnabled()` (`g_network_enabled`) — no network calls when the feature is off
 
-### HIBP breach check (`application.cpp` → `CheckBreachedPasswords`) — currently inert
+### HIBP breach check (`application.cpp` → `CheckBreachedPasswords`) — working
 
-k-anonymity Pwned-Passwords check on a background thread, gated on `shell.online_breach_check`. **Caveat:** its HTTP call goes through `win_http_request()`, which in the offline build is the `sync_manager_stub.mm` no-op — so even when the user opts in, it returns the offline error and never reaches `api.pwnedpasswords.com`. The UI is present but the feature is effectively disabled.
+k-anonymity Pwned-Passwords check on a background thread, gated on `shell.online_breach_check`. Routed through `hibp_range_fetch()` in `breach_http_mac.mm`, a dedicated `NSURLSession`-based HTTPS GET to `https://api.pwnedpasswords.com/range/<5-char SHA-1 prefix>`. Only the prefix leaves the device — the full hash and the plaintext never do (k-anonymity). 8-second request timeout; semaphore-synchronous wait is safe because the caller is already a background thread (`std::thread`).
 
-> **Decision needed:** either (a) give the breach path a real `NSURLSession`-based HTTPS call so it works like the Windows offline app, or (b) hide the breach-check UI in the offline build and drop the OpenSSL dependency. Until then, leave the setting off.
+Carved out from `sync_manager::win_http_request` (which remains a no-op stub in the offline build, since the sync paths it served are themselves compiled out). Keeps the breach-check attack surface tiny: one endpoint, GET only, no auth.
 
 ---
 
@@ -221,8 +222,7 @@ Both are compiled out under `PD_OFFLINE_BUILD`; the real `.cpp` files are **not 
 - **C++ standard:** C++20 (`gnu++20`)
 - **ARC:** Enabled for all Objective-C++ files
 - **Offline build:** `PD_OFFLINE_BUILD` is defined for the target; it swaps the `*_stub.mm` files in for `sync_manager.cpp` / `local_server.cpp` (which are absent from this repo).
-- **Homebrew deps:** `brew install libsodium openssl@3` (OpenSSL only for cpp-httplib; see [Online Features](#online-features-opt-in) — droppable if the breach-check path is removed).
-- **Header search paths:** Must include Homebrew's include dirs for libsodium (and OpenSSL while it's still linked)
-- **Library search paths:** Must include Homebrew's lib dirs
-- **Preprocessor:** `CPPHTTPLIB_OPENSSL_SUPPORT` (only needed while an HTTPS client path remains)
-- **Sandbox:** Disabled (app needs filesystem access for vaults and backups)
+- **Homebrew deps:** `brew install libsodium`.
+- **Header search paths:** `$(SRCROOT)/../../`, `/opt/homebrew/opt/libsodium/include`, `/opt/homebrew/include`.
+- **Library search paths:** `/opt/homebrew/Cellar/libsodium/1.0.21/lib`.
+- **Sandbox:** Disabled (app needs filesystem access for vaults and backups).
