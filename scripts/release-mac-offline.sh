@@ -98,6 +98,53 @@ if ! grep -q "PD_OFFLINE_BUILD=1" "$XCODEPROJ/project.pbxproj"; then
 fi
 green "  PD_OFFLINE_BUILD=1: confirmed in project settings"
 
+# ---- Data-safety invariant tests -------------------------------------------
+# Runs test_invariants.cpp against the core C++ sources (no Cocoa, no Metal,
+# no .mm) before the Xcode archive. Covers:
+#   1. Exhaustive 28-field serialization symmetry (card_address regression)
+#   2. reconcile_after_undo (Empty-Trash-then-Undo doesn't resurrect ghosts)
+#   3. Save-fail recovery snapshot roundtrip (AEAD ownership proof)
+#   4. Empty stamped vault rejects wrong password at unlock
+#   5. Ghost-vault lock-escape (save-time key_check mismatch preserves disk)
+#
+# Fail-fast placement: before any expensive Xcode work. If an invariant
+# regresses, the DMG build aborts here instead of after a 90-second archive.
+# Opt out with SKIP_INVARIANT_TESTS=1 if you need an emergency hotfix build
+# (not recommended — the whole point is that these never regress silently).
+TEST_SRC="$PROJECT_ROOT/PasswordDefense/test_invariants.cpp"
+if [[ -f "$TEST_SRC" && "${SKIP_INVARIANT_TESTS:-0}" != "1" ]]; then
+    step "Running data-safety invariant tests"
+    TEST_BIN="$(mktemp -t pd_invariants_XXXXXX)"
+    # Mirror the standalone build command in the test file's header: pure C++20,
+    # Homebrew libsodium + system sqlite3, no .mm files, no OpenSSL.
+    if ! clang++ -std=gnu++20 -O2 \
+            "$TEST_SRC" \
+            "$PROJECT_ROOT/PasswordDefense/credential_ops.cpp" \
+            "$PROJECT_ROOT/PasswordDefense/vault_crypto.cpp" \
+            "$PROJECT_ROOT/PasswordDefense/vault_db.cpp" \
+            -I "$PROJECT_ROOT/PasswordDefense" \
+            -I /opt/homebrew/include -L /opt/homebrew/lib \
+            -lsqlite3 -lsodium \
+            -o "$TEST_BIN"; then
+        red "Invariant test compile failed — aborting release."
+        rm -f "$TEST_BIN"
+        exit 1
+    fi
+    if ! "$TEST_BIN"; then
+        red "An invariant test FAILED — aborting release before archive."
+        red "This is a hard gate: a failed data-safety invariant means user vault"
+        red "data could be lost or silently corrupted by the build you were about to ship."
+        rm -f "$TEST_BIN"
+        exit 1
+    fi
+    rm -f "$TEST_BIN"
+    green "  All data-safety invariants: PASS"
+elif [[ "${SKIP_INVARIANT_TESTS:-0}" == "1" ]]; then
+    red "SKIP_INVARIANT_TESTS=1 — skipping data-safety test gate. You are responsible for anything that breaks."
+else
+    red "Warning: $TEST_SRC not found — skipping invariant tests."
+fi
+
 # ---- Clean + archive -------------------------------------------------------
 ARCHS_TO_BUILD="${ARCHS_TO_BUILD:-arm64}"
 if [[ "${UNIVERSAL:-0}" == "1" ]]; then
