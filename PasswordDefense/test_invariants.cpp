@@ -7,11 +7,14 @@
 // would cause duplicate-symbol link errors (vs utility_stub.mm and the app's
 // main). Build and run it on its own, e.g.:
 //
-//   clang++ -std=gnu++20 -I. test_invariants.cpp \
-//       credential_ops.cpp vault_db.cpp vault_crypto.cpp aes_cipher.cpp \
-//       -lsodium -lsqlite3 -o /tmp/test_invariants && /tmp/test_invariants
-//
-// (Add more of the cross-platform .cpp files to the list if the linker asks.)
+//   clang++ -std=c++20 -O2 \
+//       PasswordDefense/test_invariants.cpp \
+//       PasswordDefense/credential_ops.cpp \
+//       PasswordDefense/vault_crypto.cpp \
+//       PasswordDefense/vault_db.cpp \
+//       -I PasswordDefense -I /opt/homebrew/include -L /opt/homebrew/lib \
+//       -lsqlite3 -lsodium \
+//       -o run_tests && ./run_tests
 
 #include <cassert>
 #include <iostream>
