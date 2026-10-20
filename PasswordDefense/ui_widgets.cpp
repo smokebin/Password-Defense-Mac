@@ -1168,11 +1168,27 @@ namespace ui
     }
 
     // ============================================================
-    // StyledButton - Matches HoldToActionButton visuals, single click
+    // StyledButton family — one impl, shade-only variants.
+    //
+    // StyledButton and StyledButtonLight differ ONLY in bg/bg_hov/bg_act
+    // (the three shade values). Animation, bottom-lip shadow, top-highlight
+    // alphas, text fade, clip positions — all shared via StyledButton_impl.
+    // Adding a new variant = new palette, five-line wrapper.
+    //
+    // No right-lip (bottom lip only — flatter, matches the primary
+    // StyledButton direction).
     // ============================================================
-    bool StyledButton(const char* id, const char* label,
-                      ImVec2 size,
-                      float rounding)
+    struct StyledBtnPalette {
+        ImVec4 bg, bg_hov, bg_act;
+        ImVec4 text;
+        ImVec4 shadow;
+        ImVec4 hl, hl_hov, hl_act;
+    };
+
+    static bool StyledButton_impl(const char* id, const char* label,
+                                  ImVec2 size, float rounding,
+                                  const StyledBtnPalette& p,
+                                  const char* internal_id)
     {
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         if (!window) return false;
@@ -1188,7 +1204,7 @@ namespace ui
         ImGui::PushID(id);
 
         ImVec2 pos = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton("##styled_btn", size, ImGuiButtonFlags_MouseButtonLeft);
+        ImGui::InvisibleButton(internal_id, size, ImGuiButtonFlags_MouseButtonLeft);
 
         const bool hovered = ImGui::IsItemHovered();
         const bool held = ImGui::IsItemActive();
@@ -1199,37 +1215,21 @@ namespace ui
 
         // Smooth hover / active animation
         ImGuiStorage* st = ImGui::GetStateStorage();
-        const ImGuiID key_hover = base_id + 0x2001;
-        const ImGuiID key_active = base_id + 0x2002;
-
-        float hover_t = st->GetFloat(key_hover, 0.0f);
-        float active_t = st->GetFloat(key_active, 0.0f);
-
+        float hover_t  = st->GetFloat(base_id + 0x2001, 0.0f);
+        float active_t = st->GetFloat(base_id + 0x2002, 0.0f);
         const float dt = io.DeltaTime;
-        hover_t = ImClamp(hover_t + (hovered ? 1.0f : -1.0f) * dt * 14.0f, 0.0f, 1.0f);
-        active_t = ImClamp(active_t + (held ? 1.0f : -1.0f) * dt * 18.0f, 0.0f, 1.0f);
-
-        st->SetFloat(key_hover, hover_t);
-        st->SetFloat(key_active, active_t);
-
-        // SoftBevel colors (theme-aware, neutral grays)
-        const bool dark = g_shell_ptr ? g_shell_ptr->dark_theme : true;
-        const ImVec4 col_bg      = dark ? ImVec4(0.133f, 0.133f, 0.133f, 1.0f) : ImVec4(0.94f, 0.94f, 0.95f, 1.0f);
-        const ImVec4 col_bg_hov  = dark ? ImVec4(0.165f, 0.165f, 0.165f, 1.0f) : ImVec4(0.91f, 0.91f, 0.91f, 1.0f);
-        const ImVec4 col_bg_act  = dark ? ImVec4(0.102f, 0.102f, 0.102f, 1.0f) : ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
-        const ImVec4 col_text    = dark ? ImVec4(0.93f, 0.93f, 0.93f, 1.0f) : ImVec4(0.10f, 0.10f, 0.10f, 1.0f);
-        const ImVec4 col_shadow  = dark ? ImVec4(0.0f, 0.0f, 0.0f, 0.392f)  : ImVec4(0.0f, 0.0f, 0.0f, 0.137f);
-        const ImVec4 col_hl      = dark ? ImVec4(1.0f, 1.0f, 1.0f, 0.024f)  : ImVec4(1.0f, 1.0f, 1.0f, 0.50f);
-        const ImVec4 col_hl_hov  = dark ? ImVec4(1.0f, 1.0f, 1.0f, 0.047f)  : ImVec4(1.0f, 1.0f, 1.0f, 0.70f);
-        const ImVec4 col_hl_act  = dark ? ImVec4(0.45f, 0.45f, 0.45f, 0.05f) : ImVec4(0.0f, 0.0f, 0.0f, 0.05f);
+        hover_t  = ImClamp(hover_t  + (hovered ? 1.0f : -1.0f) * dt * 14.0f, 0.0f, 1.0f);
+        active_t = ImClamp(active_t + (held    ? 1.0f : -1.0f) * dt * 18.0f, 0.0f, 1.0f);
+        st->SetFloat(base_id + 0x2001, hover_t);
+        st->SetFloat(base_id + 0x2002, active_t);
 
         // Lerp background through rest → hover → active
-        ImVec4 bg_v = col_bg;
-        bg_v = UI_LerpVec4(bg_v, col_bg_hov, hover_t);
-        bg_v = UI_LerpVec4(bg_v, col_bg_act, active_t);
+        ImVec4 bg_v = p.bg;
+        bg_v = UI_LerpVec4(bg_v, p.bg_hov, hover_t);
+        bg_v = UI_LerpVec4(bg_v, p.bg_act, active_t);
 
-        ImU32 bgCol = ImGui::ColorConvertFloat4ToU32(bg_v);
-        ImU32 shadowCol = ImGui::ColorConvertFloat4ToU32(col_shadow);
+        ImU32 bgCol     = ImGui::ColorConvertFloat4ToU32(bg_v);
+        ImU32 shadowCol = ImGui::ColorConvertFloat4ToU32(p.shadow);
 
         // Splitter: lips behind main body
         ImDrawListSplitter splitter;
@@ -1258,9 +1258,9 @@ namespace ui
 
         // Top highlight (clipped to upper 30%)
         {
-            ImVec4 hlV = col_hl;
-            hlV = UI_LerpVec4(hlV, col_hl_hov, hover_t);
-            hlV = UI_LerpVec4(hlV, col_hl_act, active_t);
+            ImVec4 hlV = p.hl;
+            hlV = UI_LerpVec4(hlV, p.hl_hov, hover_t);
+            hlV = UI_LerpVec4(hlV, p.hl_act, active_t);
             const float inset = 1.0f;
             const float clipEnd = 0.30f;
             float clipBottom = bb.Min.y + (size.y * clipEnd);
@@ -1280,119 +1280,51 @@ namespace ui
 
         // Draw label centered
         float text_alpha = UI_Lerp(0.85f, 1.0f, hover_t);
-        ImVec4 txt_v = ImVec4(col_text.x, col_text.y, col_text.z, text_alpha);
+        ImVec4 txt_v = ImVec4(p.text.x, p.text.y, p.text.z, text_alpha);
         ImVec2 text_sz = ImGui::CalcTextSize(label);
         ImVec2 text_pos(bb.Min.x + (size.x - text_sz.x) * 0.5f, bb.Min.y + (size.y - text_sz.y) * 0.5f);
-
         dl->AddText(text_pos, ImGui::ColorConvertFloat4ToU32(txt_v), label);
 
         ImGui::PopID();
         return clicked;
     }
 
-    // StyledButtonLight — lighter variant for modal contexts
+    // Shared non-bg values. Any tweak here applies to every variant.
+    // Shadow follows the StyledButtonLight recipe (subtler). Highlight
+    // follows the StyledButton recipe (most restrained — matches the
+    // "flat matte, not plasticky gloss" direction).
+    static StyledBtnPalette MakeStyledPalette(bool dark, ImVec4 bg, ImVec4 bg_hov, ImVec4 bg_act)
+    {
+        StyledBtnPalette p;
+        p.bg       = bg;
+        p.bg_hov   = bg_hov;
+        p.bg_act   = bg_act;
+        p.text     = dark ? ImVec4(0.93f, 0.93f, 0.93f, 1.0f) : ImVec4(0.10f, 0.10f, 0.10f, 1.0f);
+        p.shadow   = dark ? ImVec4(0.0f, 0.0f, 0.0f, 0.20f)   : ImVec4(0.0f, 0.0f, 0.0f, 0.18f);
+        p.hl       = dark ? ImVec4(1.0f, 1.0f, 1.0f, 0.024f)  : ImVec4(1.0f, 1.0f, 1.0f, 0.50f);
+        p.hl_hov   = dark ? ImVec4(1.0f, 1.0f, 1.0f, 0.047f)  : ImVec4(1.0f, 1.0f, 1.0f, 0.70f);
+        p.hl_act   = dark ? ImVec4(0.45f, 0.45f, 0.45f, 0.05f): ImVec4(0.0f, 0.0f, 0.0f, 0.05f);
+        return p;
+    }
+
+    bool StyledButton(const char* id, const char* label, ImVec2 size, float rounding)
+    {
+        const bool dark = g_shell_ptr ? g_shell_ptr->dark_theme : true;
+        StyledBtnPalette p = MakeStyledPalette(dark,
+            dark ? ImVec4(0.133f, 0.133f, 0.133f, 1.0f) : ImVec4(0.94f, 0.94f, 0.95f, 1.0f),
+            dark ? ImVec4(0.165f, 0.165f, 0.165f, 1.0f) : ImVec4(0.91f, 0.91f, 0.91f, 1.0f),
+            dark ? ImVec4(0.102f, 0.102f, 0.102f, 1.0f) : ImVec4(0.85f, 0.85f, 0.85f, 1.0f));
+        return StyledButton_impl(id, label, size, rounding, p, "##styled_btn");
+    }
+
     bool StyledButtonLight(const char* id, const char* label, ImVec2 size, float rounding)
     {
-        ImGuiWindow* window = ImGui::GetCurrentWindow();
-        if (!window) return false;
-
-        ImGuiIO& io = ImGui::GetIO();
-        ImDrawList* dl = window->DrawList;
-
-        if (size.x <= 0.0f) size.x = ImGui::CalcTextSize(label).x + 36.0f;
-        if (size.y <= 0.0f) size.y = 30.0f;
-        if (rounding < 0.0f) rounding = 7.0f;
-
-        ImGui::PushID(id);
-
-        ImVec2 pos = ImGui::GetCursorScreenPos();
-        ImGui::InvisibleButton("##styled_btn_l", size, ImGuiButtonFlags_MouseButtonLeft);
-
-        const bool hovered = ImGui::IsItemHovered();
-        const bool held = ImGui::IsItemActive();
-        const bool clicked = ImGui::IsItemClicked();
-        const ImGuiID base_id = ImGui::GetItemID();
-
-        ImRect bb(pos, ImVec2(pos.x + size.x, pos.y + size.y));
-
-        ImGuiStorage* st = ImGui::GetStateStorage();
-        float hover_t = st->GetFloat(base_id + 0x3001, 0.0f);
-        float active_t = st->GetFloat(base_id + 0x3002, 0.0f);
-        hover_t = ImClamp(hover_t + (hovered ? 1.0f : -1.0f) * io.DeltaTime * 14.0f, 0.0f, 1.0f);
-        active_t = ImClamp(active_t + (held ? 1.0f : -1.0f) * io.DeltaTime * 18.0f, 0.0f, 1.0f);
-        st->SetFloat(base_id + 0x3001, hover_t);
-        st->SetFloat(base_id + 0x3002, active_t);
-
         const bool dark = g_shell_ptr ? g_shell_ptr->dark_theme : true;
-        const ImVec4 col_bg      = dark ? ImVec4(0.22f, 0.22f, 0.24f, 1.0f) : ImVec4(0.94f, 0.94f, 0.95f, 1.0f);
-        const ImVec4 col_bg_hov  = dark ? ImVec4(0.26f, 0.26f, 0.28f, 1.0f) : ImVec4(0.91f, 0.91f, 0.91f, 1.0f);
-        const ImVec4 col_bg_act  = dark ? ImVec4(0.19f, 0.19f, 0.21f, 1.0f) : ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
-        const ImVec4 col_text    = dark ? ImVec4(0.93f, 0.93f, 0.93f, 1.0f) : ImVec4(0.10f, 0.10f, 0.10f, 1.0f);
-        const ImVec4 col_shadow  = dark ? ImVec4(0.0f, 0.0f, 0.0f, 0.20f)  : ImVec4(0.0f, 0.0f, 0.0f, 0.18f);
-        const ImVec4 col_hl      = dark ? ImVec4(1.0f, 1.0f, 1.0f, 0.04f)  : ImVec4(1.0f, 1.0f, 1.0f, 0.50f);
-        const ImVec4 col_hl_hov  = dark ? ImVec4(1.0f, 1.0f, 1.0f, 0.05f)  : ImVec4(1.0f, 1.0f, 1.0f, 0.70f);
-        const ImVec4 col_hl_act  = dark ? ImVec4(0.45f, 0.45f, 0.45f, 0.18f): ImVec4(0.0f, 0.0f, 0.0f, 0.05f);
-
-        ImVec4 bg_v = col_bg;
-        bg_v = UI_LerpVec4(bg_v, col_bg_hov, hover_t);
-        bg_v = UI_LerpVec4(bg_v, col_bg_act, active_t);
-
-        ImU32 bgCol = ImGui::ColorConvertFloat4ToU32(bg_v);
-        ImU32 shadowCol = ImGui::ColorConvertFloat4ToU32(col_shadow);
-
-        ImDrawListSplitter splitter;
-        splitter.Split(dl, 2);
-        splitter.SetCurrentChannel(dl, 1);
-
-        dl->AddRectFilled(bb.Min, bb.Max, bgCol, rounding);
-
-        // Bottom lip
-        {
-            const float lipOffset = 1.8f;
-            float clipTop = bb.Min.y + (size.y * 0.62f);
-            splitter.SetCurrentChannel(dl, 0);
-            dl->PushClipRect(ImVec2(bb.Min.x - 3.0f, clipTop), ImVec2(bb.Max.x + 3.0f, bb.Max.y + lipOffset + 2.0f), true);
-            dl->AddRectFilled(ImVec2(bb.Min.x, bb.Min.y + lipOffset), ImVec2(bb.Max.x, bb.Max.y + lipOffset), shadowCol, rounding);
-            dl->PopClipRect();
-            splitter.SetCurrentChannel(dl, 1);
-        }
-
-        // Right lip
-        {
-            const float lipOffset = 1.8f;
-            float clipLeft = bb.Min.x + (size.x * 0.40f);
-            splitter.SetCurrentChannel(dl, 0);
-            dl->PushClipRect(ImVec2(clipLeft, bb.Min.y - 1.0f), ImVec2(bb.Max.x + lipOffset + 2.0f, bb.Max.y + 1.0f), true);
-            dl->AddRectFilled(ImVec2(bb.Min.x + lipOffset, bb.Min.y), ImVec2(bb.Max.x + lipOffset, bb.Max.y), shadowCol, rounding);
-            dl->PopClipRect();
-            splitter.SetCurrentChannel(dl, 1);
-        }
-
-        // Top highlight
-        {
-            ImVec4 hlV = col_hl;
-            hlV = UI_LerpVec4(hlV, col_hl_hov, hover_t);
-            hlV = UI_LerpVec4(hlV, col_hl_act, active_t);
-            const float inset = 1.0f;
-            float clipBottom = bb.Min.y + (size.y * 0.30f);
-            float hlRound = rounding - inset;
-            if (hlRound < 0.0f) hlRound = 0.0f;
-            dl->PushClipRect(ImVec2(bb.Min.x + inset - 1.0f, bb.Min.y + inset - 1.0f), ImVec2(bb.Max.x - inset + 1.0f, clipBottom), true);
-            dl->AddRect(ImVec2(bb.Min.x + inset, bb.Min.y + inset), ImVec2(bb.Max.x - inset, bb.Max.y - inset), ImGui::ColorConvertFloat4ToU32(hlV), hlRound, 0, 1.0f);
-            dl->PopClipRect();
-        }
-
-        splitter.Merge(dl);
-
-        float text_alpha = UI_Lerp(0.85f, 1.0f, hover_t);
-        ImVec4 txt_v = ImVec4(col_text.x, col_text.y, col_text.z, text_alpha);
-        ImVec2 text_sz = ImGui::CalcTextSize(label);
-        ImVec2 text_pos(bb.Min.x + (size.x - text_sz.x) * 0.5f, bb.Min.y + (size.y - text_sz.y) * 0.5f);
-
-        dl->AddText(text_pos, ImGui::ColorConvertFloat4ToU32(txt_v), label);
-
-        ImGui::PopID();
-        return clicked;
+        StyledBtnPalette p = MakeStyledPalette(dark,
+            dark ? ImVec4(0.22f, 0.22f, 0.24f, 1.0f) : ImVec4(0.94f, 0.94f, 0.95f, 1.0f),
+            dark ? ImVec4(0.26f, 0.26f, 0.28f, 1.0f) : ImVec4(0.91f, 0.91f, 0.91f, 1.0f),
+            dark ? ImVec4(0.19f, 0.19f, 0.21f, 1.0f) : ImVec4(0.85f, 0.85f, 0.85f, 1.0f));
+        return StyledButton_impl(id, label, size, rounding, p, "##styled_btn_l");
     }
 
     void EnsureAnimatedTabsFromLabels(AnimatedTabBar& bar, const std::vector<std::string>& labels, int active)
