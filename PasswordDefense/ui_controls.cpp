@@ -1318,13 +1318,13 @@ namespace ui
             { "Group Count",      "Show item count in group headers",          ICON_MDI_POUND,           "Vault",    0 },
             { "Row Gap",          "Spacing between accordion rows",            ICON_MDI_SWAP_VERTICAL,    "Vault",    0 },
             { "Font Scale",       "Adjust global text size",                   ICON_MDI_FORMAT_SIZE,      "Vault",    0 },
-            { "Privacy Mode",     "Mask personal info with bullets",           ICON_MDI_EYE_OFF,  "Vault",    0 },
-            { "Blur on Unfocus",  "Dim the app when it loses focus",           ICON_MDI_BLUR,             "Vault",    0 },
+            { "Privacy Mode",     "Hide on-screen details behind dots",        ICON_MDI_EYE_OFF,  "Vault",    0 },
+            { "Blur on Unfocus",  "Blur the window when you switch away",      ICON_MDI_BLUR,             "Vault",    0 },
             { "Theme Colors",     "Customize app appearance",                  ICON_MDI_PALETTE,          "Vault",    0 },
             // Tab 1 - Security
             { "Clear Clipboard",  "Auto-clear copied passwords",               ICON_MDI_CLIPBOARD,         "Security", 1 },
             { "Auto-lock",        "Lock vault after inactivity",               ICON_MDI_CLOCK,             "Security", 1 },
-            { "Two-Factor Auth",  "Require authenticator code to unlock",      ICON_MDI_SHIELD_HALF_FULL,     "Security", 1 },
+            { "Vault Two-Factor", "Require a code to open this vault",          ICON_MDI_SHIELD_HALF_FULL,     "Security", 1 },
             // Tab 2 - Backup
             { "Auto-backup",      "Create backup when saving vault",           ICON_MDI_HISTORY, "Backup",   2 },
             { "Keep backups",     "Maximum backup files to retain",            ICON_MDI_DATABASE,          "Backup",   2 },
@@ -1337,7 +1337,7 @@ namespace ui
 #endif
             { "Change Password",  "Update your vault password",                ICON_MDI_KEY,               "Sync",     3 },
             // Tab 4 - Transfer
-            { "Export as CSV",     "Spreadsheet compatible",                    ICON_MDI_FILE_EXCEL,        "Transfer", 4 },
+            { "Export as CSV",     "Not encrypted - opens in any spreadsheet",  ICON_MDI_FILE_EXCEL,        "Transfer", 4 },
             { "Export as PWM",     "Encrypted backup format",                   ICON_MDI_LOCK,              "Transfer", 4 },
             { "Export as KDBX",    "KeePass compatible",                        ICON_MDI_FILE_EXPORT,       "Transfer", 4 },
             { "Import PWM",        "Restore from encrypted backup",             ICON_MDI_FILE_IMPORT,       "Transfer", 4 },
@@ -2092,7 +2092,7 @@ namespace ui
                 SettingRowSpec row{};
                 row.id = ImGui::GetID("privacy_mode");
                 row.title = "Privacy Mode";
-                row.subtitle = "Mask personal info with bullets";
+                row.subtitle = "Hide on-screen details behind dots";
                 row.leftIcon = ICON_MDI_EYE_OFF;
                 row.rightType = SettingRightType::Toggle;
                 row.toggleValue = &s.privacy_mode;
@@ -2106,7 +2106,7 @@ namespace ui
                 SettingRowSpec row{};
                 row.id = ImGui::GetID("blur_on_unfocus");
                 row.title = "Blur on Unfocus";
-                row.subtitle = "Dim the app when it loses focus";
+                row.subtitle = "Blur the window when you switch away";
                 row.leftIcon = ICON_MDI_BLUR;
                 row.rightType = SettingRightType::Toggle;
                 row.toggleValue = &s.blur_on_unfocus;
@@ -2344,14 +2344,14 @@ namespace ui
 
             EndCategoryCard();
 
-            // ---- Two-Factor Authentication Card ----
-            BeginCategoryCard("Two-Factor Authentication", "Require authenticator code to unlock");
+            // ---- Vault Two-Factor Authentication Card ----
+            BeginCategoryCard("Vault Two-Factor Authentication", "Require a code to open this vault");
             {
                 bool twofa_on = twofa_ops::is_enabled();
 
                 SettingRowSpec row{};
                 row.id = ImGui::GetID("twofa_toggle");
-                row.title = "Two-Factor Auth";
+                row.title = "Vault Two-Factor";
                 row.subtitle = twofa_on ? "Enabled" : "Disabled";
                 row.leftIcon = ICON_MDI_SHIELD_HALF_FULL;
                 row.rightType = SettingRightType::Button;
@@ -2398,7 +2398,7 @@ namespace ui
                     bool escape_pressed = ImGui::IsKeyPressed(ImGuiKey_Escape);
 
                     // Header with close text
-                    ImGui::TextUnformatted(ICON_MDI_SHIELD_HALF_FULL "  Enable Two-Factor Authentication");
+                    ImGui::TextUnformatted(ICON_MDI_SHIELD_HALF_FULL "  Enable Vault Two-Factor");
                     {
                         ImVec2 closeSz = ImGui::CalcTextSize(ICON_MDI_CLOSE);
                         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeSz.x);
@@ -2588,7 +2588,7 @@ namespace ui
                     bool escape_pressed = ImGui::IsKeyPressed(ImGuiKey_Escape);
 
                     // Header with close text
-                    ImGui::TextUnformatted(ICON_MDI_SHIELD_HALF_FULL "  Disable Two-Factor Authentication");
+                    ImGui::TextUnformatted(ICON_MDI_SHIELD_HALF_FULL "  Disable Vault Two-Factor");
                     {
                         ImVec2 closeSz = ImGui::CalcTextSize(ICON_MDI_CLOSE);
                         ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeSz.x);
@@ -3044,7 +3044,7 @@ namespace ui
                 SettingRowSpec row{};
                 row.id = ImGui::GetID("export_csv");
                 row.title = "Export as CSV";
-                row.subtitle = "Spreadsheet compatible";
+                row.subtitle = "Not encrypted - opens in any spreadsheet";
                 row.leftIcon = ICON_MDI_FILE_EXCEL;
                 row.rightType = SettingRightType::Button;
                 row.buttonLabel = "Export";
