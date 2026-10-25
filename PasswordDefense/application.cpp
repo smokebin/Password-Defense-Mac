@@ -6664,6 +6664,10 @@ static void render_unlocked_screen()
     if (g_shell.active_screen == ui::Screen::Locked)
     {
         render_locked_screen();
+        // Keep retrying the shared bridge socket on the locked screen too, so
+        // this app takes over when the cloud app quits. The unlocked path calls
+        // it at the end of this function.
+        TickBridge();
         if (render_scroll)
             ui::EndShellScroll();
         ui::EndShell();
