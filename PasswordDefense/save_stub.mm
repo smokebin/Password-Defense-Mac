@@ -141,13 +141,9 @@ namespace cfg {
     DetailedHeaderColumns get_detailed_header_columns()                    { return s_dhc; }
     void set_detailed_header_columns(const DetailedHeaderColumns& cols)    { s_dhc = cols; }
 
-    // Local server
-    static bool s_local_server = false;
-    static int  s_local_port = 8080;
-    bool get_local_server_enabled()        { return s_local_server; }
-    void set_local_server_enabled(bool e)  { s_local_server = e; }
-    int  get_local_server_port()           { return s_local_port; }
-    void set_local_server_port(int p)      { s_local_port = p; }
+    // No-op in the stub — legacy keys only live in the on-disk JSON that
+    // the real save.cpp owns.
+    void migrate_remove_legacy_local_server_keys() {}
 
     // Three-pane
     static bool s_3p_sidebar_collapsed = false, s_3p_list_collapsed = false;

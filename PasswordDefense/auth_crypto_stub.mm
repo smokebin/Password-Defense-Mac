@@ -13,7 +13,7 @@
 // the header + stub satisfy the linker for the one surviving #include in
 // application.cpp. That keeps "did I guard every UI entry point perfectly?"
 // decoupled from "does the offline target build?" — same decoupling pattern
-// used by sync_manager_stub.mm and local_server_stub.mm.
+// used by sync_manager_stub.mm.
 
 #include "auth_crypto.h"
 

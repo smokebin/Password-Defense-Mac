@@ -135,11 +135,8 @@ namespace cfg {
     DetailedHeaderColumns get_detailed_header_columns();
     void set_detailed_header_columns(const DetailedHeaderColumns& cols);
 
-    // Local server
-    bool get_local_server_enabled();
-    void set_local_server_enabled(bool enabled);
-    int  get_local_server_port();
-    void set_local_server_port(int port);
+    // One-shot cleanup for legacy localhost-HTTP keys (no-op in the stub).
+    void migrate_remove_legacy_local_server_keys();
 
     // Three-pane
     bool get_three_pane_sidebar_collapsed();

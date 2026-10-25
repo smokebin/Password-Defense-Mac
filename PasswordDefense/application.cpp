@@ -30,7 +30,7 @@
 #include "favicon.h"
 #include "u8path.h"       // helpers::U8Path / PathToU8 for recovery-dir I/O
 #include "sync_manager.h"
-#include "local_server.h" // Localhost extension server
+#include "bridge_server.h" // Native-messaging Unix-socket bridge for the browser extension
 #include "save.h"          // Config persistence
 #include "app_internal.h"     // Shared declarations for split TUs
 
@@ -44,8 +44,11 @@
 #endif
 #endif
 
-// Localhost HTTP server for browser extension integration
-static LocalServer g_local_server;
+// Native-messaging bridge for the browser extension. A user-only Unix
+// socket in the App Group container (shared with pw-mac-cloud and the
+// Safari extension) — no network listener, so it fits the offline build.
+// Externally linked so the Settings UI (ui_controls.cpp) can read status.
+BridgeServer g_bridge;
 
 // Defined in GUI.mm — checks [NSApp isActive]
 extern bool render_app_is_active();
@@ -1118,20 +1121,196 @@ static void VaultMarkSaved(VaultState& v)
     }
 }
 
-// Start local extension server if enabled (call after vault unlock)
-static void StartLocalServerIfEnabled(VaultState& v)
+// Forward decls — the real definitions sit below (rebuild_groups is at ~1281,
+// rebuild_tags at ~1317). PerformBridgeWrite calls them to refresh the sidebar
+// after an extension-driven save, same as the HasExternalChange handler does.
+static void rebuild_groups(ui::ShellState& s, const std::vector<Credential>& creds);
+static void rebuild_tags(ui::ShellState& s, const std::vector<Credential>& creds);
+
+// Publish the current vault state to the native-messaging bridge and
+// (optionally) emit the vault_unlocked event. Runs unconditionally — the
+// bridge is always on; its socket has user-only perms and no network reach.
+static void PublishBridgeSnapshot(const VaultState& v, bool emit_event)
 {
-    if (!g_shell.local_server_enabled) return;
-    if (v.master_key.empty()) return;
+    g_bridge.ApplySnapshot(v.unlocked, v.vault_path, v.creds);
+    if (emit_event && v.unlocked)
+    {
+        std::string ev = R"({"event":"vault_unlocked","credCount":)";
+        ev += std::to_string(v.creds.size());
+        ev += "}";
+        g_bridge.PushEvent(ev);
+    }
+}
 
-    auto salt = vault_db::get_cached_salt();
-    if (salt.empty()) return;
+// Execute one pending bridge write (save_new / update / delete) on the UI
+// thread. Same code as pw-mac-cloud's PerformBridgeWrite.
+//
+// Returns the JSON response the worker thread will ship back to the browser.
+static std::string PerformBridgeWrite(VaultState& v, const PendingWrite& w)
+{
+    nlohmann::json body;
+    try { body = nlohmann::json::parse(w.payload_json); }
+    catch (...) { return R"({"ok":false,"error":"invalid_json"})"; }
 
-    g_local_server.SetMasterKey(v.master_key);
-    g_local_server.SetSalt(salt);
-    g_local_server.UpdateCredentials(v.creds);
-    g_local_server.SetActiveVaultPath(v.vault_path);
-    g_local_server.Start(g_shell.local_server_port);
+    if (!v.unlocked || v.master_key.empty()) {
+        return R"({"ok":false,"error":"vault_locked"})";
+    }
+
+    // Treat a JSON null like an absent field: the extension historically sent
+    // existing_id:null, and json::value(..., "") throws on null.
+    auto str = [&](const char* key) -> std::string {
+        auto it = body.find(key);
+        return (it != body.end() && it->is_string()) ? it->get<std::string>() : std::string();
+    };
+    auto has = [&](const char* key) {
+        auto it = body.find(key);
+        return it != body.end() && it->is_string();
+    };
+
+    const std::string hostname    = str("hostname");
+    const std::string title       = str("title");
+    const std::string username    = str("username");
+    const std::string password    = str("password");
+    const std::string existing_id = str("existing_id");
+
+    bool success = false;
+    std::string uuid;
+
+    if (w.action == "delete")
+    {
+        // Same as the UI delete: soft-delete in the DB (Trash; sync pushes the
+        // tombstone), record in the save_all ledger, drop from memory.
+        const std::string id = existing_id.empty() ? str("id") : existing_id;
+        if (id.empty()) {
+            return R"({"ok":false,"error":"missing_existing_id"})";
+        }
+        auto it = std::find_if(v.creds.begin(), v.creds.end(), [&](const Credential& c) {
+            return c.uuid == id && !c.is_deleted();
+        });
+        if (it == v.creds.end()) {
+            return R"({"ok":false,"error":"not_found"})";
+        }
+        CreatePreOpBackup(v, "BRIDGEDELETE");
+        success = cred_ops::remove(id);
+        if (success) {
+            v.user_removed_uuids.insert(id);
+            v.creds.erase(it);
+            uuid = id;
+        }
+    }
+    else if (hostname.empty() || username.empty() || password.empty())
+    {
+        return R"({"ok":false,"error":"missing_fields"})";
+    }
+    else if (w.action == "save_new")
+    {
+        Credential c;
+        c.title       = title.empty() ? hostname : title;
+        c.user        = username;
+        c.password    = password;
+        c.website     = hostname;
+        c.notes       = str("notes");
+        c.totp_secret = str("totp_secret");
+        c.type        = CredType::Password;
+        uuid = cred_ops::add(c, v.master_key);
+        success = !uuid.empty();
+        if (success) {
+            c.uuid = uuid;
+            c.created_at_ms = helpers::now_unix_ms();
+            c.updated_at_ms = c.created_at_ms;
+            v.creds.push_back(c);
+        }
+    }
+    else if (w.action == "update")
+    {
+        if (existing_id.empty()) {
+            return R"({"ok":false,"error":"missing_existing_id"})";
+        }
+        for (auto& c : v.creds) {
+            if (c.uuid != existing_id || c.is_deleted()) continue;
+            c.password = password;
+            if (!title.empty())    c.title = title;
+            if (!username.empty()) c.user  = username;
+            // The save prompt sends the bare hostname; keep the stored URL
+            // (scheme/path) unless the host actually changed.
+            auto host_of = [](std::string u) {
+                auto p = u.find("://");
+                if (p != std::string::npos) u = u.substr(p + 3);
+                u = u.substr(0, u.find_first_of(":/"));
+                std::transform(u.begin(), u.end(), u.begin(),
+                               [](unsigned char ch) { return (char)std::tolower(ch); });
+                if (u.rfind("www.", 0) == 0) u.erase(0, 4);
+                return u;
+            };
+            if (host_of(hostname) != host_of(c.website)) c.website = hostname;
+            // Only the popup editor sends these; the save prompt omits them,
+            // and absent must not mean "clear".
+            if (has("notes"))       c.notes       = str("notes");
+            if (has("totp_secret")) c.totp_secret = str("totp_secret");
+            c.updated_at_ms = helpers::now_unix_ms();
+            c.is_dirty      = true;
+            success = cred_ops::update(c.uuid, c, v.master_key);
+            uuid = c.uuid;
+            break;
+        }
+        if (uuid.empty()) {
+            return R"({"ok":false,"error":"not_found"})";
+        }
+    }
+    else
+    {
+        return R"({"ok":false,"error":"unknown_write"})";
+    }
+
+    if (success) {
+        // Snapshot + modified event so other extension instances see the
+        // change immediately. Match the behavior of VaultMarkChanged.
+        g_bridge.ApplySnapshot(v.unlocked, v.vault_path, v.creds);
+        g_bridge.PushEvent(R"({"event":"vault_modified"})");
+
+        // Rebuild UI-side group/tag caches so the credential appears in the
+        // Group/Tag sidebar on the very next frame.
+        rebuild_groups(g_shell, v.creds);
+        rebuild_tags(g_shell, v.creds);
+        ui::ForgetVaultRowState(GetActiveVaultKey());
+    }
+
+    // ok must reflect the write: the extension treats ok:true as saved.
+    nlohmann::json resp;
+    resp["ok"]      = success;
+    resp["success"] = success;
+    if (!success) resp["error"] = "write_failed";
+    if (!uuid.empty()) resp["uuid"] = uuid;
+    return resp.dump();
+}
+
+// Thin shim retained so every pre-existing unlock site keeps compiling
+// without a rename sweep. All it does is republish the vault to the
+// native-messaging bridge + emit vault_unlocked.
+static void PublishVaultOnUnlock(VaultState& v)
+{
+    PublishBridgeSnapshot(v, /*emit_event=*/true);
+}
+
+// The bridge socket is shared with the other Password Defense app (cloud /
+// offline): whichever starts first serves the extension. Retry every few
+// seconds so this app takes over when the other quits, and step aside if
+// our socket node was replaced (both launched at once). After a (re)start
+// the cache is empty, so republish the active vault.
+static void TickBridge()
+{
+    static double s_next_check = 0.0;
+    const double now = ImGui::GetTime();
+    if (now < s_next_check) return;
+    s_next_check = now + 3.0;
+
+    if (g_bridge.IsRunning()) {
+        if (g_bridge.OwnsSocketPath()) return;
+        g_bridge.Shutdown();   // won't unlink — the node isn't ours any more
+    }
+    g_bridge.Start();
+    if (g_bridge.IsRunning())
+        PublishBridgeSnapshot(ActiveVault(), /*emit_event=*/false);
 }
 
 static void VaultMarkChanged(VaultState& v, const char* preTagForBackup)
@@ -1142,9 +1321,10 @@ static void VaultMarkChanged(VaultState& v, const char* preTagForBackup)
 
     VaultRecomputeDirty(v);
 
-    // Push updated credentials to the extension server
-    if (g_local_server.IsRunning())
-        g_local_server.UpdateCredentials(v.creds);
+    // Republish to the bridge + emit vault_modified so connected
+    // extensions refresh their caches on the next frame.
+    g_bridge.ApplySnapshot(v.unlocked, v.vault_path, v.creds);
+    g_bridge.PushEvent(R"({"event":"vault_modified"})");
 
     // Your autosave debounce uses this
     g_autosave.last_change_time = ImGui::GetTime();
@@ -3484,7 +3664,7 @@ static bool load_vault_from_disk(const std::string& path, const std::string& pas
     g_autosave.last_save_time = ImGui::GetTime();
     g_last_activity_time = ImGui::GetTime(); // Reset auto-lock timer
 
-    StartLocalServerIfEnabled(v);
+    PublishVaultOnUnlock(v);
     propagate_sync_tokens();
 
     // Replay any .rec snapshot left behind by a prior save-fail. Decrypts under
@@ -3526,7 +3706,7 @@ static void complete_2fa_unlock(const std::string& code, VaultState& v)
     g_autosave.last_save_time = ImGui::GetTime();
     g_last_activity_time = ImGui::GetTime();
 
-    StartLocalServerIfEnabled(v);
+    PublishVaultOnUnlock(v);
 
     // Mirror load_vault_from_disk — a .rec left behind by a prior save-fail should
     // be replayed after 2FA succeeds too.
@@ -3765,6 +3945,8 @@ static bool save_vault_to_disk(VaultState& v)
             v.clear_sensitive();
             secure_clear_credentials(v.creds);
             secure_clear_undo_stack(v.undo_stack);
+            g_bridge.Lock();
+            g_bridge.PushEvent(R"({"event":"vault_locked"})");
             ui::SetRepromptMasterPassword("");
             ui::ResetRepromptLockout();
             ResetScreen(g_shell, ui::Screen::Locked);
@@ -4134,6 +4316,8 @@ static void render_locked_screen()
             v.clear_sensitive();
             secure_clear_credentials(v.creds);
             secure_clear_undo_stack(v.undo_stack);
+            g_bridge.Lock();
+            g_bridge.PushEvent(R"({"event":"vault_locked"})");
             v.vault_path.clear();
         }
 
@@ -4374,7 +4558,7 @@ static void render_locked_screen()
                             g_last_activity_time = ImGui::GetTime();
 
                             g_sync_mgr->save_tokens_to_db();
-                            StartLocalServerIfEnabled(v);
+                            PublishVaultOnUnlock(v);
 
                             sodium_memzero(s_pw[ti].data(), s_pw[ti].size());
                             s_pw[ti].clear();
@@ -4750,7 +4934,7 @@ static void render_locked_screen()
                                 g_last_activity_time = ImGui::GetTime();
 
                                 g_sync_mgr->save_tokens_to_db();
-                                StartLocalServerIfEnabled(v);
+                                PublishVaultOnUnlock(v);
 
                                 // Pull existing credentials from server
                                 g_sync_mgr->start_background_sync();
@@ -5701,79 +5885,6 @@ static void render_unlocked_screen()
         g_shell.sync_logout_clicked = false;
     }
 #endif  // PD_OFFLINE_BUILD — end of Sync intents (sync_now, logout, etc.)
-
-    // ============================================================
-    // Local extension server toggle
-    // ============================================================
-    if (g_shell.local_server_toggled)
-    {
-        g_shell.local_server_toggled = false;
-
-        if (g_shell.local_server_enabled && v.unlocked)
-        {
-            // Start the server now
-            StartLocalServerIfEnabled(v);
-        }
-        else if (!g_shell.local_server_enabled && g_local_server.IsRunning())
-        {
-            // Stop the server now
-            g_local_server.Stop();
-        }
-    }
-
-    // ============================================================
-    // Pairing management
-    // ============================================================
-    if (g_shell.pair_browser_clicked)
-    {
-        g_shell.pair_browser_clicked = false;
-        if (g_local_server.IsRunning())
-        {
-            std::string code = g_local_server.GeneratePairingCode();
-            g_shell.pairing_code_display = code;
-            g_shell.show_pairing_code = true;
-            g_shell.pairing_code_timer = 120.0f; // 2 minutes
-        }
-    }
-
-    if (!g_shell.revoke_pairing_id.empty())
-    {
-        g_local_server.RevokePairing(g_shell.revoke_pairing_id);
-        g_shell.revoke_pairing_id.clear();
-    }
-
-    // Update paired browsers list for UI display
-    if (g_local_server.IsRunning())
-    {
-        auto pairings = g_local_server.GetPairings();
-        g_shell.paired_browsers.clear();
-        g_shell.paired_browsers.reserve(pairings.size());
-        for (const auto& p : pairings)
-        {
-            ui::ShellState::PairedBrowserInfo info;
-            info.full_id = p.id;
-            info.id_short = p.id.substr(0, 8);
-            // Format paired_at as date
-            if (p.paired_at > 0)
-            {
-                time_t t = (time_t)p.paired_at;
-                struct tm tm_buf;
-#ifdef _WIN32
-                localtime_s(&tm_buf, &t);
-#else
-                localtime_r(&t, &tm_buf);
-#endif
-                char date_str[32];
-                strftime(date_str, sizeof(date_str), "%Y-%m-%d", &tm_buf);
-                info.paired_date = date_str;
-            }
-            g_shell.paired_browsers.push_back(std::move(info));
-        }
-    }
-    else
-    {
-        g_shell.paired_browsers.clear();
-    }
 
     // ============================================================
     // CSV Export
@@ -7230,64 +7341,33 @@ static void render_unlocked_screen()
     }
 
     // ============================================================
-    // External Credential change (from browser extension save)
+    // Bridge write queue — drain pending save_new / update commands
+    // posted by browser extension worker threads. Each pending write
+    // must have its response promise fulfilled before we exit this
+    // function, otherwise the worker's future.wait_for() times out.
     // ============================================================
-    if (g_local_server.IsRunning() && g_local_server.HasExternalChange()) {
-        g_local_server.ClearExternalChange();
-        VaultState& ev = ActiveVault();
-        if (ev.unlocked && !ev.master_key.empty()) {
-            ev.creds = cred_ops::load_all(ev.master_key);
-            rebuild_groups(g_shell, ev.creds); rebuild_tags(g_shell, ev.creds);
-            ui::ForgetVaultRowState(GetActiveVaultKey());
-            g_local_server.UpdateCredentials(ev.creds);
+    {
+        auto writes = g_bridge.DrainPendingWrites();
+        if (!writes.empty()) {
+            VaultState& bv = ActiveVault();
+            for (auto& w : writes) {
+                std::string resp = PerformBridgeWrite(bv, w);
+                w.response.set_value(std::move(resp));
+            }
         }
     }
 
-    // ============================================================
-    // Vault switch (from browser extension vault selector)
-    // ============================================================
-    if (g_local_server.IsRunning() && g_local_server.HasVaultSwitch()) {
-        auto info = g_local_server.ConsumeVaultSwitch();
-        VaultState& sv = ActiveVault();
-
-        // Close current vault and open the new one
-        vault_db::close();
-        if (vault_db::init(info.vault_path)) {
-            sv.creds = cred_ops::load_all(info.master_key);
-            sv.vault_path = info.vault_path;
-            sv.master_key = info.master_key;
-            sv.session_password = info.password;
-            sv.unlocked = true;
-
-            // Update tab label
-            ActiveTab().label = std::filesystem::path(info.vault_path).stem().string();
-
-            VaultMarkSaved(sv);
-            rebuild_groups(g_shell, sv.creds); rebuild_tags(g_shell, sv.creds);
-            ui::ForgetVaultRowState(GetActiveVaultKey());
-
-            // Sync server state
-            g_local_server.SetMasterKey(info.master_key);
-            g_local_server.SetSalt(info.salt);
-            g_local_server.UpdateCredentials(sv.creds);
-            g_local_server.SetActiveVaultPath(info.vault_path);
-
-            // Update config for auto-open
-            cfg::_path = info.vault_path;
-            cfg::update_db_path();
-
-            ui::SetRepromptMasterPassword(info.password);
-            ui::ResetRepromptLockout();
-
-            sv.set_status("Vault switched.", false);
-        }
-    }
+    // (vault_switch from the extension is deferred — the native-messaging
+    // protocol doesn't expose it today. If needed, add a vault_switch
+    // write action to BridgeServer; the UI thread already owns the full
+    // VaultState so the switch logic drops in next to PerformBridgeWrite.)
 
     // ============================================================
     // Autosave tick + Auto-lock tick + end shell
     // ============================================================
     TickAutosave();
     TickAutoLock();
+    TickBridge();
     TickCredentialExpiry();
 
     if (render_scroll)
@@ -7389,6 +7469,8 @@ static void render_unlocked_screen()
         vv.clear_sensitive();
         secure_clear_credentials(vv.creds);
         secure_clear_undo_stack(vv.undo_stack);
+        g_bridge.Lock();
+        g_bridge.PushEvent(R"({"event":"vault_locked"})");
         vv.vault_path.clear();
 
         // Clear re-prompt security state
@@ -7417,8 +7499,9 @@ static void render_unlocked_screen()
         g_shell.footer_close_anyway = false;
         g_shell.settings_modal_open = false;
 
-        // Stop extension server before closing vault
-        g_local_server.Stop();
+        // Tell connected extensions the vault is closing.
+        g_bridge.Lock();
+        g_bridge.PushEvent(R"({"event":"vault_locked"})");
 
         VaultState& vv = ActiveVault();
         uint32_t vk = GetActiveVaultKey();
@@ -7555,8 +7638,9 @@ static void render_unlocked_screen()
         VaultState& vv = ActiveVault();
         std::string path_to_delete = vv.vault_path;
 
-        // Stop extension server
-        g_local_server.Stop();
+        // Tell connected extensions the vault is going away.
+        g_bridge.Lock();
+        g_bridge.PushEvent(R"({"event":"vault_locked"})");
 
         // Clear re-prompt security state
         ui::SetRepromptMasterPassword("");
@@ -7690,6 +7774,14 @@ void render::DisplayProgram()
 
         // Load password aging threshold
         g_shell.password_max_age_days = cfg::get_password_max_age_days();
+
+        // Drop the old localhost-extension keys from the config file.
+        cfg::migrate_remove_legacy_local_server_keys();
+
+        // Start the native-messaging bridge. Always on (no toggle): a
+        // user-only Unix socket with no network reach. If the cloud app is
+        // already serving the shared socket, TickBridge takes over later.
+        g_bridge.Start();
     }
 
     ui::OskPreFrame(); // Intercept clicks over the on-screen keyboard before widgets see them

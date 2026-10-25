@@ -2,6 +2,11 @@
 // List controls, sort/view dropdowns, selection toolbar, settings page
 #include "ui_internal.h"
 #include "favicon.h"
+#include "bridge_server.h"
+#include "bridge_install.h"
+
+// Owned by application.cpp; read here for the Browser Extension card.
+extern BridgeServer g_bridge;
 
 namespace ui
 {
@@ -1320,6 +1325,7 @@ namespace ui
             { "Font Scale",       "Adjust global text size",                   ICON_MDI_FORMAT_SIZE,      "Vault",    0 },
             { "Privacy Mode",     "Hide on-screen details behind dots",        ICON_MDI_EYE_OFF,  "Vault",    0 },
             { "Blur on Unfocus",  "Blur the window when you switch away",      ICON_MDI_BLUR,             "Vault",    0 },
+            { "Browser Extension", "Autofill for Safari, Chrome, Edge, and Brave", ICON_MDI_PUZZLE,     "Vault",    0 },
             { "Theme Colors",     "Customize app appearance",                  ICON_MDI_PALETTE,          "Vault",    0 },
             // Tab 1 - Security
             { "Clear Clipboard",  "Auto-clear copied passwords",               ICON_MDI_CLIPBOARD,         "Security", 1 },
@@ -2120,143 +2126,110 @@ namespace ui
             EndCategoryCard();
 
 #ifndef PD_OFFLINE_BUILD
-            // ---- Browser Extension Card (moved here from the removed Sync tab
-            // to match Windows: Browser Extension sits under the Vault tab) ----
-            BeginCategoryCard("Browser Extension", "Serve credentials to browser extension via localhost");
+            // ---- Browser Extension ----
+            // Native-messaging transport over a user-permissions Unix socket.
+            // No pairing / HMAC / network listener — the browser spawns our
+            // pw-bridge host, which forwards frames to this process.
+            BeginCategoryCard("Browser Extension",
+                "Autofill for Safari, Chrome, Edge, and Brave");
 
-            // Enable toggle
+            // Status row: bridge running + socket path. Keep socket_path
+            // alive across RenderSettingRow — SettingRowSpec::subtitle is a
+            // non-owning const char*, so passing a temporary string's c_str()
+            // would dangle before the row renders.
             {
+                const bool running = g_bridge.IsRunning();
+                const bool elsewhere = !running && g_bridge.ServedByOtherApp();
+                const std::string socket_path = g_bridge.SocketPath();
                 SettingRowSpec row{};
-                row.id = ImGui::GetID("ext_server_enabled");
-                row.title = "Extension Server";
-                row.subtitle = "Serve vault to browser extension on localhost";
-                row.leftIcon = ICON_MDI_PUZZLE;
-                row.rightType = SettingRightType::Toggle;
-                row.toggleValue = &s.local_server_enabled;
-
-                auto result = RenderSettingRow(row, &g_settings_selected_row, 54.0f);
-                if (result.action_used) {
-                    cfg::set_local_server_enabled(s.local_server_enabled);
-                    s.local_server_toggled = true;
-                }
+                row.id = ImGui::GetID("bridge_status");
+                // Cloud and offline apps share the socket; whichever started
+                // first serves the extension, the other takes over when it quits.
+                row.title = running   ? "Bridge running"
+                          : elsewhere ? "Served by your other Password Defense app"
+                                      : "Bridge stopped";
+                row.subtitle = elsewhere ? "This app takes over when that one quits"
+                                         : socket_path.c_str();
+                row.leftIcon = (running || elsewhere) ? ICON_MDI_LINK_VARIANT : ICON_MDI_LINK_OFF;
+                row.rightType = SettingRightType::None;
+                row.enabled = false;
+                RenderSettingRow(row, &g_settings_selected_row, 54.0f);
                 DrawRowDivider();
             }
 
-            // Port display (trailing divider only when more rows follow below,
-            // i.e. the server is enabled and the Pair / browsers block is shown).
+            // Status row: connected clients.
             {
-                char port_label[32];
-                snprintf(port_label, sizeof(port_label), "%d", s.local_server_port);
-
+                char buf[32];
+                size_t n = g_bridge.ConnectedClients();
+                snprintf(buf, sizeof(buf), "%zu connected", n);
                 SettingRowSpec row{};
-                row.id = ImGui::GetID("ext_server_port");
-                row.title = "Port";
-                row.subtitle = port_label;
-                row.leftIcon = ICON_MDI_LAN;
+                row.id = ImGui::GetID("bridge_clients");
+                row.title = "Browser connections";
+                row.subtitle = buf;
+                row.leftIcon = ICON_MDI_PUZZLE;
                 row.rightType = SettingRightType::None;
                 row.enabled = false;
-
                 RenderSettingRow(row, &g_settings_selected_row, 54.0f);
-                if (s.local_server_enabled)
-                    DrawRowDivider();
+                DrawRowDivider();
             }
 
-            // Pair New Browser button
-            if (s.local_server_enabled)
+            // Per-browser install state. Scan() is cheap — stat()s a handful
+            // of dirs; safe to run every frame.
             {
-                // Pairing code display
-                if (s.show_pairing_code && s.pairing_code_timer > 0.0f)
+                auto scan = bridge_install::Scan();
+                for (size_t i = 0; i < scan.size(); ++i)
                 {
-                    s.pairing_code_timer -= ImGui::GetIO().DeltaTime;
-                    if (s.pairing_code_timer <= 0.0f)
-                    {
-                        s.show_pairing_code = false;
-                        s.pairing_code_display.clear();
+                    const auto& br = scan[i];
+                    char row_id[64];
+                    snprintf(row_id, sizeof(row_id), "bridge_install_%s", br.short_key.c_str());
+
+                    const char* subtitle;
+                    const char* btn_label;
+                    if (!br.browser_installed) {
+                        subtitle = "Not installed";
+                        btn_label = nullptr;
+                    } else if (br.host_registered) {
+                        subtitle = "Host registered";
+                        btn_label = "Uninstall";
+                    } else {
+                        subtitle = "Browser detected — host not registered";
+                        btn_label = "Install";
                     }
-                    else
-                    {
-                        ImGui::Dummy(ImVec2(0, 4));
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
-                        ImGui::TextWrapped("Enter this code in the browser extension:");
-                        ImGui::PopStyleColor();
 
-                        ImGui::Dummy(ImVec2(0, 4));
-
-                        float avail = ImGui::GetContentRegionAvail().x;
-                        float codeW = ImGui::CalcTextSize(s.pairing_code_display.c_str()).x * 1.8f;
-                        ImGui::SetCursorPosX((avail - codeW) * 0.5f + ImGui::GetCursorPosX());
-                        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts.Size > 1 ? ImGui::GetIO().Fonts->Fonts[1] : nullptr);
-                        ImGui::TextUnformatted(s.pairing_code_display.c_str());
-                        ImGui::PopFont();
-
-                        char timer_buf[32];
-                        int secs = (int)s.pairing_code_timer;
-                        snprintf(timer_buf, sizeof(timer_buf), "Expires in %d:%02d", secs / 60, secs % 60);
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-                        float timerW = ImGui::CalcTextSize(timer_buf).x;
-                        ImGui::SetCursorPosX((avail - timerW) * 0.5f + ImGui::GetCursorPosX());
-                        ImGui::TextUnformatted(timer_buf);
-                        ImGui::PopStyleColor();
-
-                        ImGui::Dummy(ImVec2(0, 4));
-                        DrawRowDivider();
-                    }
-                }
-
-                // Pair button (trailing divider only when the paired browsers
-                // list follows below).
-                {
                     SettingRowSpec row{};
-                    row.id = ImGui::GetID("pair_browser");
-                    row.title = "Pair New Browser";
-                    row.subtitle = "Generate a one-time pairing code";
-                    row.leftIcon = ICON_MDI_LINK;
-                    row.rightType = SettingRightType::Button;
-                    row.buttonLabel = "Pair";
+                    row.id = ImGui::GetID(row_id);
+                    row.title = br.name.c_str();
+                    row.subtitle = subtitle;
+                    row.leftIcon = ICON_MDI_EARTH;
+                    row.rightType = btn_label ? SettingRightType::Button : SettingRightType::None;
+                    row.buttonLabel = btn_label ? btn_label : "";
+                    row.enabled = (btn_label != nullptr);
 
                     auto result = RenderSettingRow(row, &g_settings_selected_row, 54.0f);
-                    if (result.action_used) {
-                        s.pair_browser_clicked = true;
-                    }
-                    if (!s.paired_browsers.empty())
-                        DrawRowDivider();
-                }
-
-                // Paired browsers list
-                if (!s.paired_browsers.empty())
-                {
-                    ImGui::Dummy(ImVec2(0, 2));
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.6f, 0.6f, 0.6f, 1.0f));
-                    ImGui::TextUnformatted("Paired Browsers");
-                    ImGui::PopStyleColor();
-                    ImGui::Dummy(ImVec2(0, 2));
-
-                    for (size_t i = 0; i < s.paired_browsers.size(); i++)
-                    {
-                        const auto& pb = s.paired_browsers[i];
-                        char label[128];
-                        snprintf(label, sizeof(label), "%s...  %s", pb.id_short.c_str(), pb.paired_date.c_str());
-
-                        char btn_id[64];
-                        snprintf(btn_id, sizeof(btn_id), "revoke_%zu", i);
-
-                        SettingRowSpec row{};
-                        row.id = ImGui::GetID(btn_id);
-                        row.title = label;
-                        row.leftIcon = ICON_MDI_EARTH;
-                        row.rightType = SettingRightType::Button;
-                        row.buttonLabel = "Revoke";
-
-                        auto result = RenderSettingRow(row, &g_settings_selected_row, 42.0f);
-                        if (result.action_used) {
-                            s.revoke_pairing_id = pb.full_id;
+                    if (result.action_used && btn_label) {
+                        if (br.host_registered) {
+                            bridge_install::Uninstall(br.short_key);
+                            ui::ShowToast((br.name + ": host uninstalled").c_str(),
+                                          ui::ToastType::Success);
+                        } else {
+                            std::string err;
+                            if (bridge_install::Install(br.short_key, /*force=*/false, &err)) {
+                                ui::ShowToast((br.name + ": host installed").c_str(),
+                                              ui::ToastType::Success);
+                            } else {
+                                // Most common failures: pw-bridge binary not
+                                // found (dev build cleaned, release not run)
+                                // or browser dir vanished between Scan and
+                                // click. Surface the message either way so
+                                // the user isn't guessing why the subtitle
+                                // didn't flip.
+                                std::string msg = br.name + " install failed: " + err;
+                                ui::ShowToast(msg.c_str(), ui::ToastType::Error, 4.0f);
+                            }
                         }
-                        if (i + 1 < s.paired_browsers.size())
-                            DrawRowDivider();
                     }
+                    if (i + 1 < scan.size()) DrawRowDivider();
                 }
-
-                ImGui::Dummy(ImVec2(0, 4));
             }
 
             EndCategoryCard();

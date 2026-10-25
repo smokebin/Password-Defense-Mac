@@ -499,8 +499,6 @@ namespace ui
             s.auto_backup       = cfg::get_auto_backup();
             s.backup_keep_count = cfg::get_backup_keep_count();
             s.detailed_header_cols = cfg::get_detailed_header_columns();
-            s.local_server_enabled = cfg::get_local_server_enabled();
-            s.local_server_port    = cfg::get_local_server_port();
             s.three_pane_sidebar_collapsed = cfg::get_three_pane_sidebar_collapsed();
             s.three_pane_list_collapsed    = cfg::get_three_pane_list_collapsed();
             s.three_pane_sidebar_auto_collapse = cfg::get_three_pane_sidebar_auto_collapse();

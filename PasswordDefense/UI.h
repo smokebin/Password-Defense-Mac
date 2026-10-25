@@ -378,18 +378,6 @@ namespace ui
         bool recovery_key_modal_open = false;
         std::string recovery_key_display;    // hex with dashes, cleared after modal close
 
-        // Local extension server
-        bool local_server_enabled = false;
-        int  local_server_port = 19837;
-        bool local_server_toggled = false;  // one-frame intent when toggle flipped
-
-        // Pairing management
-        bool pair_browser_clicked = false;          // one-frame intent
-        bool show_pairing_code = false;             // show the code display
-        std::string pairing_code_display;           // the generated code
-        float pairing_code_timer = 0.0f;            // countdown seconds remaining
-        std::string revoke_pairing_id;              // one-frame intent: pairing to revoke
-
         // Vault share modal
         bool show_share_vault_modal = false;
         int share_scope = 0;              // 0=All, 1=By Group, 2=By Type
@@ -401,12 +389,6 @@ namespace ui
         std::string share_result_url;     // generated URL
         std::string share_error;
 
-        struct PairedBrowserInfo {
-            std::string full_id;     // full pairing UUID
-            std::string id_short;    // first 8 chars
-            std::string paired_date; // human-readable date
-        };
-        std::vector<PairedBrowserInfo> paired_browsers;  // populated by app layer
     };
 
     // App Style Editor (color customization window)

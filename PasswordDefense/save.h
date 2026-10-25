@@ -107,15 +107,10 @@ namespace cfg {
 	int  get_backup_keep_count();
 	void set_backup_keep_count(int count);
 
-	// Local extension server
-	bool get_local_server_enabled();
-	void set_local_server_enabled(bool enabled);
-	int  get_local_server_port();
-	void set_local_server_port(int port);
-
-	// Local server pairings (browser extension HMAC pairing)
-	std::string get_local_server_pairings_raw();   // returns JSON array string
-	void set_local_server_pairings_raw(const std::string& json_array);
+	// One-shot cleanup for legacy localhost-HTTP config keys. Safe to call
+	// on every launch — see migrate_remove_legacy_local_server_keys body
+	// for details on which keys get stripped.
+	void migrate_remove_legacy_local_server_keys();
 
 	// High-security KDF option (uses SENSITIVE Argon2id params — slower unlock)
 	bool get_high_security_kdf();

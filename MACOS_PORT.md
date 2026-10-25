@@ -4,7 +4,7 @@
 
 PasswordDefense is a cross-platform password manager originally built for Windows (DX11/Win32). This documents the macOS port, which replaces the rendering backend with Metal and the windowing layer with Cocoa/AppKit, while sharing the vast majority of application logic as cross-platform C++.
 
-> **This is the OFFLINE fork** (`smokebin/Password-Defense-Mac`, public — the "verify yourself" sibling of the Windows offline app). Cloud sync and the browser-extension local server are compiled out: `sync_manager.cpp` and `local_server.cpp` are deleted from this repo and replaced by no-op stubs (`sync_manager_stub.mm`, `local_server_stub.mm`) under the `PD_OFFLINE_BUILD` target. The only online features are opt-in and OFF by default — see [Online Features](#online-features-opt-in). The cloud variant lives in the private `pw-mac-cloud`.
+> **This is the OFFLINE fork** (`smokebin/Password-Defense-Mac`, public — the "verify yourself" sibling of the Windows offline app). Cloud sync is compiled out: `sync_manager.cpp` is deleted from this repo and replaced by a no-op stub (`sync_manager_stub.mm`) under the `PD_OFFLINE_BUILD` target. The browser extension still works, over native messaging: a user-only Unix socket on this Mac, with no network listener (see [Browser Extension](#browser-extension-native-messaging)). The only online features are opt-in and OFF by default — see [Online Features](#online-features-opt-in). The cloud variant lives in the private `pw-mac-cloud`.
 
 **Rendering:** Metal + ImGui (via `imgui_impl_metal.mm` and `imgui_impl_osx.mm`)
 **Language:** C++ (core logic) + Objective-C++ (`.mm` files for macOS-specific code)
@@ -36,7 +36,7 @@ PasswordDefense is a cross-platform password manager originally built for Window
 │  credential_ops   – CRUD operations               │
 │  vault_db / vault_crypto – SQLite + XChaCha20     │
 │  sync_manager     – STUBBED (offline: no-op)      │
-│  local_server     – STUBBED (offline: no-op)      │
+│  bridge_server    – extension bridge (Unix socket)│
 │  save.cpp         – config, paths, self-destruct  │
 │  kdbx_export      – KeePass export                │
 │  totp / twofa_ops – TOTP generation               │
@@ -74,7 +74,8 @@ PasswordDefense is a cross-platform password manager originally built for Window
 | `vault_crypto.cpp` | XChaCha20-Poly1305 vault encryption/decryption (libsodium); Argon2id KDF |
 | `save.cpp` | Config file I/O, path setup, self-destruct handler |
 | `sync_manager_stub.mm` | **Offline no-op** replacing `sync_manager.cpp`. Every method reports "offline"; the free `win_http_request()` helper returns a benign failure. `sync_manager.cpp` is not in this repo. |
-| `local_server_stub.mm` | **Offline no-op** replacing `local_server.cpp`. No localhost server, no browser-extension API; `IsRunning()` is always false so UI branches skip cleanly. `local_server.cpp` is not in this repo. |
+| `bridge_server.cpp` | Browser-extension bridge: serves the unlocked vault to the extension over a user-only (0600) Unix socket in `~/Library/Group Containers/group.com.StackedSoftware.PasswordDefense/`. No network listener. |
+| `bridge_install.cpp` | Writes / removes the per-browser native-messaging host manifests (Settings → Browser Extension). |
 | `kdbx_export.cpp` | KeePass `.kdbx` export |
 | `app_import_export.cpp` | CSV/PWM import and export |
 | `app_sharing.cpp` | Anonymous credential sharing |
@@ -209,10 +210,16 @@ Carved out from `sync_manager::win_http_request` (which remains a no-op stub in 
 
 ## Removed in the Offline Build
 
-Both are compiled out under `PD_OFFLINE_BUILD`; the real `.cpp` files are **not in this repo** (deleted so no networking implementation ships). The headers remain so call sites compile against the no-op stubs.
+Compiled out under `PD_OFFLINE_BUILD`; the real `.cpp` is **not in this repo** (deleted so no networking implementation ships). The header remains so call sites compile against the no-op stub.
 
 - **Cloud sync** (`sync_manager.cpp` → `sync_manager_stub.mm`): no login/register, cloud vaults, push/pull, token management, or anonymous sharing. `is_logged_in()` always false; status always "Offline".
-- **Browser-extension server** (`local_server.cpp` → `local_server_stub.mm`): no localhost HTTP server on port 19837, no pairing, no autofill endpoints.
+- **Localhost extension server**: removed entirely (no HTTP server on port 19837, no pairing). The extension uses the native-messaging bridge below instead.
+
+## Browser Extension (native messaging)
+
+The extension never talks to the network to reach the app. The browser launches `pw-bridge` (shipped in `Contents/MacOS/`, source in `bridge-host/main.cpp`), which relays messages to the app over a Unix socket that only your user account can open. Register the host per browser in Settings → Browser Extension.
+
+The cloud build (`pw-mac-cloud`) uses the same socket, so the extension and Safari work with whichever app is installed. If both are running, the one that started first serves the extension and the other takes over when it quits.
 
 ---
 
@@ -221,7 +228,7 @@ Both are compiled out under `PD_OFFLINE_BUILD`; the real `.cpp` files are **not 
 - **Xcode project:** `PasswordDefenseOffline.xcodeproj`
 - **C++ standard:** C++20 (`gnu++20`)
 - **ARC:** Enabled for all Objective-C++ files
-- **Offline build:** `PD_OFFLINE_BUILD` is defined for the target; it swaps the `*_stub.mm` files in for `sync_manager.cpp` / `local_server.cpp` (which are absent from this repo).
+- **Offline build:** `PD_OFFLINE_BUILD` is defined for the target; it swaps `sync_manager_stub.mm` in for `sync_manager.cpp` (which is absent from this repo).
 - **Homebrew deps:** `brew install libsodium`.
 - **Header search paths:** `$(SRCROOT)/../../`, `/opt/homebrew/opt/libsodium/include`, `/opt/homebrew/include`.
 - **Library search paths:** `/opt/homebrew/Cellar/libsodium/1.0.21/lib`.

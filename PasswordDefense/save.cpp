@@ -899,73 +899,29 @@ namespace cfg {
 		helpers::str_to_file(cfg_path, j.dump(5));
 	}
 
-	// Local extension server
-	bool get_local_server_enabled()
-	{
-		if (cfg_path.empty()) return false;
-		try {
-			nlohmann::json j = nlohmann::json::parse(helpers::file_to_str(cfg_path));
-			return j.value("local_server_enabled", false);
-		}
-		catch (...) { return false; }
-	}
-
-	void set_local_server_enabled(bool enabled)
+	// One-shot migration — remove stale localhost-HTTP keys from the config
+	// JSON. Older clients wrote local_server_enabled / _port /
+	// local_server_pairings; the HTTP server + pairing/HMAC flow was removed
+	// when we switched the extension to a native-messaging Unix socket. Any
+	// surviving entries are dead and only clutter the file.
+	//
+	// Safe to call every launch — if the keys are absent the function is a
+	// no-op, if present it rewrites the file without them.
+	void migrate_remove_legacy_local_server_keys()
 	{
 		if (cfg_path.empty()) return;
 		nlohmann::json j;
 		try { j = nlohmann::json::parse(helpers::file_to_str(cfg_path)); }
-		catch (...) { j = nlohmann::json::object(); }
-		j["local_server_enabled"] = enabled;
-		helpers::str_to_file(cfg_path, j.dump(5));
-	}
+		catch (...) { return; }
 
-	int get_local_server_port()
-	{
-		if (cfg_path.empty()) return 19837;
-		try {
-			nlohmann::json j = nlohmann::json::parse(helpers::file_to_str(cfg_path));
-			return j.value("local_server_port", 19837);
+		bool mutated = false;
+		for (const char* key : {"local_server_enabled",
+		                        "local_server_port",
+		                        "local_server_pairings"})
+		{
+			if (j.erase(key) > 0) mutated = true;
 		}
-		catch (...) { return 19837; }
-	}
-
-	void set_local_server_port(int port)
-	{
-		if (cfg_path.empty()) return;
-		nlohmann::json j;
-		try { j = nlohmann::json::parse(helpers::file_to_str(cfg_path)); }
-		catch (...) { j = nlohmann::json::object(); }
-		j["local_server_port"] = port;
-		helpers::str_to_file(cfg_path, j.dump(5));
-	}
-
-	// Local server pairings
-	std::string get_local_server_pairings_raw()
-	{
-		if (cfg_path.empty()) return "[]";
-		try {
-			nlohmann::json j = nlohmann::json::parse(helpers::file_to_str(cfg_path));
-			if (j.contains("local_server_pairings") && j["local_server_pairings"].is_array())
-				return j["local_server_pairings"].dump();
-			return "[]";
-		}
-		catch (...) { return "[]"; }
-	}
-
-	void set_local_server_pairings_raw(const std::string& json_array)
-	{
-		if (cfg_path.empty()) return;
-		nlohmann::json j;
-		try { j = nlohmann::json::parse(helpers::file_to_str(cfg_path)); }
-		catch (...) { j = nlohmann::json::object(); }
-		try {
-			j["local_server_pairings"] = nlohmann::json::parse(json_array);
-		}
-		catch (...) {
-			j["local_server_pairings"] = nlohmann::json::array();
-		}
-		helpers::str_to_file(cfg_path, j.dump(5));
+		if (mutated) helpers::str_to_file(cfg_path, j.dump(5));
 	}
 
 	// High-security KDF

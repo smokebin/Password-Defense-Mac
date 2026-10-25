@@ -5,8 +5,10 @@
 # Differs from release-mac.sh only in which Xcode project is built, the
 # bundle identifier that gets signed, and the output DMG name. The offline
 # project (PasswordDefenseOffline.xcodeproj) bakes PD_OFFLINE_BUILD=1 into
-# GCC_PREPROCESSOR_DEFINITIONS, which strips cloud sync, browser-extension
-# server, auto-update check, and anonymous-share features at compile time.
+# GCC_PREPROCESSOR_DEFINITIONS, which strips cloud sync, auto-update check,
+# and anonymous-share features at compile time. The browser extension still
+# works: it talks to the app over a local Unix socket (native messaging),
+# not the network.
 #
 # Bundle ID is com.StackedSoftware.PasswordDefenseOffline so this build can
 # coexist with (or cleanly replace) a cloud install.
@@ -67,14 +69,42 @@ if [[ -z "$DEV_TEAM_ID" ]]; then
 fi
 
 if [[ -z "$DEV_ID_NAME" ]]; then
-    DEV_ID_NAME="$(security find-identity -v -p codesigning | \
-                   grep -o '"Developer ID Application: [^"]*"' | head -1 | tr -d '"')"
-    if [[ -z "$DEV_ID_NAME" ]]; then
+    # Try to auto-detect from keychain. We capture BOTH the display name
+    # (for logs + exportOptions.plist) and the SHA-1 fingerprint (for direct
+    # codesign calls that need to disambiguate when the same cert name
+    # appears twice — common after a cert renewal where the old cert stays
+    # in the keychain alongside the new one).
+    #
+    # security find-identity line format:
+    #   <idx>) <40-char-sha1> "<display name>"
+    DEV_ID_LINE="$(security find-identity -v -p codesigning | \
+                   grep '"Developer ID Application:' | head -1)"
+    if [[ -z "$DEV_ID_LINE" ]]; then
         red "No 'Developer ID Application' identity found in keychain."
         red "Open Xcode → Settings → Accounts → Manage Certificates → + → 'Developer ID Application'"
         exit 1
     fi
+    DEV_ID_NAME="$(echo "$DEV_ID_LINE" | grep -o '"[^"]*"' | tr -d '"')"
+    DEV_ID_HASH="$(echo "$DEV_ID_LINE" | awk '{print $2}')"
     green "Auto-detected signing identity: $DEV_ID_NAME"
+    green "  SHA-1: $DEV_ID_HASH"
+fi
+# If DEV_ID_NAME was explicitly set via env, we still need a hash. Resolve
+# whichever cert matches — if ambiguous, fail loudly rather than randomly
+# picking one.
+if [[ -z "${DEV_ID_HASH:-}" ]]; then
+    MATCHES="$(security find-identity -v -p codesigning | \
+               grep -F "\"$DEV_ID_NAME\"" | awk '{print $2}')"
+    MATCH_COUNT="$(printf '%s\n' "$MATCHES" | grep -c . || true)"
+    if [[ "$MATCH_COUNT" == "0" ]]; then
+        red "DEV_ID_NAME='$DEV_ID_NAME' not found in keychain."
+        exit 1
+    elif [[ "$MATCH_COUNT" != "1" ]]; then
+        red "DEV_ID_NAME='$DEV_ID_NAME' matches $MATCH_COUNT certs — specify DEV_ID_HASH to pick one."
+        printf '%s\n' "$MATCHES" | sed 's/^/  /'
+        exit 1
+    fi
+    DEV_ID_HASH="$MATCHES"
 fi
 
 command -v create-dmg >/dev/null || { red "create-dmg not installed. Run: brew install create-dmg"; exit 1; }
@@ -161,13 +191,27 @@ xcodebuild \
     -configuration Release \
     -destination "generic/platform=macOS" \
     -archivePath "$ARCHIVE_PATH" \
+    -allowProvisioningUpdates \
     ARCHS="$ARCHS_TO_BUILD" \
     ONLY_ACTIVE_ARCH=NO \
-    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_STYLE=Automatic \
     DEVELOPMENT_TEAM="$DEV_TEAM_ID" \
-    CODE_SIGN_IDENTITY="$DEV_ID_NAME" \
-    OTHER_CODE_SIGN_FLAGS="--options=runtime --timestamp" \
     archive
+# Signing notes:
+#  - CODE_SIGN_STYLE=Automatic (was Manual) because the app now carries an
+#    App Group entitlement (com.apple.security.application-groups). Apple
+#    requires a provisioning profile for *any* capability that touches their
+#    registration graph (App Groups, iCloud, Push, etc.), and only Automatic
+#    signing can request + install one on the fly. Manual mode would need a
+#    hand-created "Developer ID Direct Distribution Profile" that nothing in
+#    this repo generates.
+#  - -allowProvisioningUpdates lets xcodebuild talk to Apple's dev portal to
+#    fetch / renew the profile.
+#  - CODE_SIGN_IDENTITY + OTHER_CODE_SIGN_FLAGS dropped: automatic signing
+#    picks the Development cert for the archive step. The subsequent
+#    -exportArchive with method=developer-id (see exportOptions below)
+#    re-signs the output with the Developer ID cert, so the user-facing DMG
+#    is still Developer ID signed — not Apple Development.
 
 # ---- Export with Developer ID ---------------------------------------------
 step "Exporting Developer ID build"
@@ -179,17 +223,22 @@ cat > "$EXPORT_OPTS" <<EOF
 <dict>
     <key>method</key>           <string>developer-id</string>
     <key>teamID</key>           <string>$DEV_TEAM_ID</string>
-    <key>signingStyle</key>     <string>manual</string>
+    <key>signingStyle</key>     <string>automatic</string>
     <key>signingCertificate</key><string>Developer ID Application</string>
 </dict>
 </plist>
 EOF
+# signingStyle=automatic (was manual) for the same App-Groups reason as the
+# archive step above: a Developer-ID-with-App-Groups distribution profile
+# has to come from Apple's provisioning service, which only Automatic +
+# -allowProvisioningUpdates can request.
 
 xcodebuild \
     -exportArchive \
     -archivePath "$ARCHIVE_PATH" \
     -exportOptionsPlist "$EXPORT_OPTS" \
-    -exportPath "$EXPORT_DIR"
+    -exportPath "$EXPORT_DIR" \
+    -allowProvisioningUpdates
 
 APP_PATH="$EXPORT_DIR/$APP_NAME.app"
 [[ -d "$APP_PATH" ]] || { red "Exported .app not found at $APP_PATH"; exit 1; }
@@ -208,6 +257,46 @@ if ! printf '%s\n' "$SIG_INFO" | grep -q "Identifier=$BUNDLE_ID"; then
     exit 1
 fi
 green "App signed: $APP_PATH"
+
+# ---- Embed pw-bridge native-messaging host ---------------------------------
+# The browser extension's installed host manifest points at
+# Contents/MacOS/pw-bridge inside the shipped .app. Without this binary,
+# connectNative() fails with "Native host has exited" and the extension
+# shows "Desktop App Offline" indefinitely.
+#
+# Built here rather than as an Xcode target because it's a standalone 150-line
+# stdio↔socket shim with no Cocoa / Metal / libsodium / ImGui deps — pulling
+# it into the Xcode project would add a new target + scheme + signing config
+# for ~2k of linked code. The arch(s) must match the main app's $ARCHS_TO_BUILD
+# so both ship with the same slice set.
+step "Embedding pw-bridge native-messaging host"
+BRIDGE_SCRIPT="$SCRIPT_DIR/build-bridge-host.sh"
+[[ -x "$BRIDGE_SCRIPT" ]] || { red "$BRIDGE_SCRIPT not found or not executable"; exit 1; }
+
+# Translate xcodebuild's space-separated ARCHS into build-bridge-host.sh's
+# single --arch value.
+case "$ARCHS_TO_BUILD" in
+    *arm64*x86_64*|*x86_64*arm64*) BRIDGE_ARCH="universal" ;;
+    *arm64*)                        BRIDGE_ARCH="arm64" ;;
+    *x86_64*)                       BRIDGE_ARCH="x86_64" ;;
+    *) red "Unknown ARCHS_TO_BUILD: $ARCHS_TO_BUILD"; exit 1 ;;
+esac
+
+BRIDGE_PATH="$APP_PATH/Contents/MacOS/pw-bridge"
+"$BRIDGE_SCRIPT" --output "$BRIDGE_PATH" --arch "$BRIDGE_ARCH"
+
+# Sign with the same Developer ID + hardened runtime + timestamp as the main
+# binary. Pass the SHA-1 instead of the display name because the keychain
+# commonly carries two certs with identical names after a renewal, and
+# codesign bails with "ambiguous" when it can't pick one.
+codesign --force --sign "$DEV_ID_HASH" \
+         --options runtime --timestamp \
+         "$BRIDGE_PATH"
+
+# Smoke check: the shim must match the main app's arch(s) or users on the
+# other platform see "Bad CPU type in executable". file(1) tells us what we got.
+file "$BRIDGE_PATH"
+green "pw-bridge embedded + signed: $BRIDGE_PATH"
 
 # ---- Bundle non-system dylibs --------------------------------------------
 step "Bundling non-system dylibs (fixes Homebrew-link crash on user Macs)"
@@ -231,9 +320,9 @@ dylibbundler \
 step "Re-signing bundled dylibs + .app"
 find "$FRAMEWORKS_DIR" -type f \( -name "*.dylib" -o -name "*.so" \) -print0 |
     while IFS= read -r -d '' lib; do
-        codesign --force --sign "$DEV_ID_NAME" --options runtime --timestamp "$lib"
+        codesign --force --sign "$DEV_ID_HASH" --options runtime --timestamp "$lib"
     done
-codesign --force --deep --sign "$DEV_ID_NAME" --options runtime --timestamp "$APP_PATH"
+codesign --force --deep --sign "$DEV_ID_HASH" --options runtime --timestamp "$APP_PATH"
 
 LEFTOVER="$(otool -L "$EXEC_PATH" | awk '{print $1}' | grep -E '^(/opt/homebrew|/usr/local)' || true)"
 if [[ -n "$LEFTOVER" ]]; then
@@ -284,7 +373,7 @@ rm -f "$RW_DMG"
 
 mv "$STAGE_DMG" "$DMG_OUT"
 
-codesign --sign "$DEV_ID_NAME" --timestamp "$DMG_OUT"
+codesign --sign "$DEV_ID_HASH" --timestamp "$DMG_OUT"
 
 # ---- Notarize + staple -----------------------------------------------------
 if [[ "${SKIP_NOTARIZE:-0}" == "1" ]]; then

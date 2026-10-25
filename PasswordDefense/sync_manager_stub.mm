@@ -4,7 +4,7 @@
 // offline app links with zero cloud/networking code. Every method is a no-op
 // that reports "offline": is_logged_in() is always false, status is always
 // Offline, and any sync/share/cloud/version call returns a benign failure.
-// Mirrors the existing local_server_stub.mm / favicon_stub.mm pattern.
+// Mirrors the existing favicon_stub.mm pattern.
 //
 // KEEP IN SYNC WITH sync_manager.h. If the header gains/changes a method and
 // this file doesn't, the offline target won't link until you add the matching
