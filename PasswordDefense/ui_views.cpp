@@ -4917,6 +4917,9 @@ namespace ui
                     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabHovered, IM_COL32(0, 0, 0, 0));
                     ImGui::PushStyleColor(ImGuiCol_ScrollbarGrabActive,  IM_COL32(0, 0, 0, 0));
                     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
+                    // Capture the sidebar (outer) window left BEFORE entering the tag child,
+                    // so active-tag highlights can bleed full width like the TYPES rows.
+                    float sbWinLeft = ImGui::GetWindowPos().x;
                     ImGui::BeginChild("##sb_tags_scroll", ImVec2(0, tagsMaxH), false);
                     ImGui::PopStyleVar();
                     ImGui::PopStyleColor(5);
@@ -4937,7 +4940,12 @@ namespace ui
                         if (active)
                         {
                             ImDrawList* dl_t = ImGui::GetWindowDrawList();
-                            float hlLeft = ImGui::GetWindowPos().x;
+                            float hlLeft = sbWinLeft; // bleed to the sidebar's left edge, like TYPES rows
+                            // Tag rows live in a scroll child whose clip rect starts at the indented
+                            // content; widen it for this row so the highlight reaches both the far
+                            // left and sbContentRight, matching the TYPES highlight exactly.
+                            dl_t->PushClipRect(ImVec2(hlLeft, curPos.y),
+                                               ImVec2(sbContentRight + 1.0f, curPos.y + rowH + 1.0f), false);
                             dl_t->AddLine(
                                 ImVec2(hlLeft, curPos.y),
                                 ImVec2(sbContentRight, curPos.y),
@@ -4951,6 +4959,7 @@ namespace ui
                                 ImVec2(hlLeft, curPos.y),
                                 ImVec2(sbContentRight, curPos.y + rowH),
                                 hlCol, 0.0f);
+                            dl_t->PopClipRect();
                         }
 
                         ImGui::PushID(tag.c_str());
