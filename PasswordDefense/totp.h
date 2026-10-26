@@ -25,6 +25,22 @@ namespace totp {
     // Returns true on success, stores the base32 secret in out_secret.
     bool parse_otpauth_uri(const std::string& uri, std::string& out_secret);
 
+    // What an otpauth:// link carries that the vault can use. The vault stores only the
+    // secret (codes are always 6 digits / 30 s / SHA-1, on every platform); `unsupported`
+    // lists any other settings the link asks for, so the UI can warn the codes won't match.
+    struct OtpAuthInfo
+    {
+        std::string secret;   // normalized: uppercase, no spaces/padding
+        std::string issuer;
+        std::string account;
+        std::vector<std::string> unsupported;  // e.g. "8-digit codes", "a 60-second period", "SHA256"
+    };
+
+    // Parse a full otpauth://totp/ link (percent-decoded label and params). On failure returns
+    // false with a user-facing reason in out_error: HOTP links, Google Authenticator export
+    // (otpauth-migration://) codes, links with no secret, or text that isn't an otpauth link.
+    bool parse_otpauth_info(const std::string& uri, OtpAuthInfo& out, std::string& out_error);
+
     // Validate that a base32 string decodes to a usable secret (>= 10 bytes).
     bool is_valid_secret(const std::string& base32);
 

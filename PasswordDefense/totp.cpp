@@ -283,6 +283,129 @@ bool parse_otpauth_uri(const std::string& uri, std::string& out_secret)
     return true;
 }
 
+static std::string lower_copy(std::string s)
+{
+    for (auto& ch : s) ch = (char)std::tolower((unsigned char)ch);
+    return s;
+}
+
+static std::string percent_decode(const std::string& s)
+{
+    std::string out;
+    out.reserve(s.size());
+    for (size_t i = 0; i < s.size(); i++)
+    {
+        if (s[i] == '%' && i + 2 < s.size() &&
+            std::isxdigit((unsigned char)s[i + 1]) && std::isxdigit((unsigned char)s[i + 2]))
+        {
+            out.push_back((char)std::stoi(s.substr(i + 1, 2), nullptr, 16));
+            i += 2;
+        }
+        else
+            out.push_back(s[i]);
+    }
+    return out;
+}
+
+static std::string trim_copy(const std::string& s)
+{
+    size_t b = 0, e = s.size();
+    while (b < e && std::isspace((unsigned char)s[b])) b++;
+    while (e > b && std::isspace((unsigned char)s[e - 1])) e--;
+    return s.substr(b, e - b);
+}
+
+bool parse_otpauth_info(const std::string& uri_in, OtpAuthInfo& out, std::string& out_error)
+{
+    out = OtpAuthInfo{};
+    const std::string uri = trim_copy(uri_in);
+    const std::string lower = lower_copy(uri);
+
+    if (lower.rfind("otpauth-migration://", 0) == 0)
+    {
+        out_error = "This is a Google Authenticator export link, which isn't supported. Use the setup QR code or key from the website instead.";
+        return false;
+    }
+    const std::string scheme = "otpauth://";
+    if (lower.rfind(scheme, 0) != 0)
+    {
+        out_error = "This isn't a two-factor setup link.";
+        return false;
+    }
+
+    // otpauth://<type>/<label>?<params>
+    size_t typeEnd = uri.find('/', scheme.size());
+    std::string type = lower.substr(scheme.size(), typeEnd == std::string::npos ? std::string::npos : typeEnd - scheme.size());
+    if (type == "hotp")
+    {
+        out_error = "This link uses counter-based (HOTP) codes, which aren't supported. Only time-based codes work.";
+        return false;
+    }
+    if (type != "totp" || typeEnd == std::string::npos)
+    {
+        out_error = "This isn't a two-factor setup link.";
+        return false;
+    }
+
+    size_t q = uri.find('?', typeEnd + 1);
+    std::string label = percent_decode(uri.substr(typeEnd + 1, q == std::string::npos ? std::string::npos : q - typeEnd - 1));
+
+    std::string secret, issuerParam, digits, period, algorithm;
+    if (q != std::string::npos)
+    {
+        size_t pos = q + 1;
+        while (pos <= uri.size())
+        {
+            size_t amp = uri.find('&', pos);
+            std::string pair = uri.substr(pos, amp == std::string::npos ? std::string::npos : amp - pos);
+            size_t eq = pair.find('=');
+            std::string key = lower_copy(percent_decode(pair.substr(0, eq)));
+            std::string val = eq == std::string::npos ? "" : percent_decode(pair.substr(eq + 1));
+            if (key == "secret") secret = val;
+            else if (key == "issuer") issuerParam = val;
+            else if (key == "digits") digits = val;
+            else if (key == "period") period = val;
+            else if (key == "algorithm") algorithm = val;
+            if (amp == std::string::npos) break;
+            pos = amp + 1;
+        }
+    }
+
+    for (char ch : secret)
+        if (!std::isspace((unsigned char)ch) && ch != '=' && ch != '-')
+            out.secret.push_back((char)std::toupper((unsigned char)ch));
+    if (out.secret.empty())
+    {
+        out_error = "This link has no secret key in it.";
+        return false;
+    }
+
+    // Label is "Issuer:account" or just "account"; the issuer param wins when present.
+    std::string labelIssuer;
+    std::string account = label;
+    size_t colon = label.find(':');
+    if (colon != std::string::npos)
+    {
+        labelIssuer = label.substr(0, colon);
+        account = label.substr(colon + 1);
+    }
+    out.issuer = trim_copy(!issuerParam.empty() ? issuerParam : labelIssuer);
+    out.account = trim_copy(account);
+
+    if (!digits.empty() && digits != "6")
+        out.unsupported.push_back(digits + "-digit codes");
+    if (!period.empty() && period != "30")
+        out.unsupported.push_back("a " + period + "-second period");
+    if (!algorithm.empty())
+    {
+        std::string alg = algorithm;
+        for (auto& ch : alg) ch = (char)std::toupper((unsigned char)ch);
+        if (alg != "SHA1")
+            out.unsupported.push_back(alg);
+    }
+    return true;
+}
+
 bool is_valid_secret(const std::string& base32)
 {
     auto bytes = base32_decode(base32);

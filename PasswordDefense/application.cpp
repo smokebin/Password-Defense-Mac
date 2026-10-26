@@ -353,6 +353,7 @@ struct CredentialModal
     Credential buf{};
     std::string password_buf{};
     std::string totp_secret_buf{};
+    std::string totp_warning{};   // otpauth:// paste problem or non-standard-settings warning
     bool show_password = false;
     bool is_pinned = false;
     bool is_favorite = false;
@@ -377,6 +378,7 @@ struct CredentialModal
         buf = Credential{};
         password_buf.clear();
         totp_secret_buf.clear();
+        totp_warning.clear();
         show_password = false;
         is_pinned = false;
         is_favorite = false;
@@ -401,6 +403,7 @@ struct CredentialModal
         buf.phone         = ui::FormatWithPattern(ui::StripNonDigits(c.phone),         "(###) ###-####");
         password_buf = pw;
         totp_secret_buf = c.totp_secret;
+        totp_warning.clear();
         show_password = false;
         is_pinned = c.is_pinned;
         is_favorite = c.is_favorite;
@@ -422,6 +425,7 @@ struct CredentialModal
         buf = Credential{};
         password_buf.clear();
         totp_secret_buf.clear();
+        totp_warning.clear();
         show_password = false;
         is_pinned = false;
         is_favorite = false;
@@ -2285,16 +2289,49 @@ static void render_credential_modal(VaultState& v)
         {
             //ImGui::TextDisabled(ICON_MDI_CLOCK " TOTP Secret");
             ImGui::SetNextItemWidth(fieldW - 110.0f);
-            ui::InputTextString(ICON_MDI_CLOCK " TOTP Secret", &g_cred_modal.totp_secret_buf);
+            const bool totpEdited = ui::InputTextString(ICON_MDI_CLOCK " TOTP Secret", &g_cred_modal.totp_secret_buf);
 
-            // Auto-parse otpauth:// URIs on paste
-            if (!g_cred_modal.totp_secret_buf.empty() &&
-                g_cred_modal.totp_secret_buf.size() > 15 &&
-                g_cred_modal.totp_secret_buf.find("otpauth://") != std::string::npos)
+            // Pasted otpauth:// link: keep the secret, fill an empty title/username/email
+            // from the link, and warn when the site uses settings the vault can't store
+            // (matches Windows, web and the iOS QR scanner).
             {
-                std::string parsed;
-                if (totp::parse_otpauth_uri(g_cred_modal.totp_secret_buf, parsed))
-                    g_cred_modal.totp_secret_buf = parsed;
+                std::string lowerBuf = g_cred_modal.totp_secret_buf;
+                for (auto& ch : lowerBuf) ch = (char)std::tolower((unsigned char)ch);
+                if (lowerBuf.find("otpauth://") != std::string::npos ||
+                    lowerBuf.find("otpauth-migration://") != std::string::npos)
+                {
+                    totp::OtpAuthInfo info;
+                    std::string err;
+                    if (totp::parse_otpauth_info(g_cred_modal.totp_secret_buf, info, err))
+                    {
+                        Credential& b = g_cred_modal.buf;
+                        g_cred_modal.totp_secret_buf = info.secret;
+                        if (b.title.empty() && !info.issuer.empty())
+                            b.title = info.issuer;
+                        if (b.user.empty() && b.email.empty() && !info.account.empty())
+                        {
+                            if (info.account.find('@') != std::string::npos) b.email = info.account;
+                            else b.user = info.account;
+                        }
+                        g_cred_modal.totp_warning.clear();
+                        if (!info.unsupported.empty())
+                        {
+                            std::string list;
+                            for (size_t i = 0; i < info.unsupported.size(); i++)
+                                list += (i ? ", " : "") + info.unsupported[i];
+                            g_cred_modal.totp_warning = "Secret saved, but this site uses " + list +
+                                ", which Password Defense doesn't support yet, so the code shown may not match. "
+                                "Keep this account in your current authenticator app.";
+                        }
+                    }
+                    else
+                    {
+                        g_cred_modal.totp_secret_buf.clear();
+                        g_cred_modal.totp_warning = err;
+                    }
+                }
+                else if (totpEdited)
+                    g_cred_modal.totp_warning.clear();  // typing a key by hand drops an old warning
             }
 
             // Live preview of current code
@@ -2310,6 +2347,14 @@ static void render_credential_modal(VaultState& v)
                     ImGui::SameLine();
                     ImGui::TextColored(colors::Red, "Invalid");
                 }
+            }
+
+            if (!g_cred_modal.totp_warning.empty())
+            {
+                ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + fieldW);
+                ImGui::TextColored(ImVec4(0.96f, 0.69f, 0.20f, 1.0f), ICON_MDI_ALERT " %s",
+                    g_cred_modal.totp_warning.c_str());
+                ImGui::PopTextWrapPos();
             }
         }
 
