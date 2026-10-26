@@ -429,6 +429,10 @@ namespace ui
     std::string StripNonDigits(const std::string& s);
     std::string FormatWithPattern(const std::string& digits, const char* pattern);
     bool InputTextMultilineString(const char* label, std::string* str, const ImVec2& size, ImGuiInputTextFlags flags = 0);
+    // read-only, word-wrapped note display; caller pushes the frame style vars (FrameBg/FramePadding/etc)
+    void NotesDisplayWrapped(const char* id, const char* text, const ImVec2& size);
+    // bordered card that matches the Security card (used in detail tabs); grows to fit the text
+    void NotesDisplayCard(const char* id, const char* text, float width);
     bool InputText3(const char* label,
         char* buf,
         size_t buf_size,

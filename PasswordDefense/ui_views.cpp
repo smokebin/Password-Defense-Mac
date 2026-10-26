@@ -75,7 +75,6 @@ namespace ui
     float g_3p_list_anim_w    = -1.0f;
     std::unordered_set<uint64_t> g_notes_visible;
     uint64_t g_notes_reprompt_pending = 0;
-    int g_notes_tab_reprompt_cred_id = -1;  // credential ID awaiting reprompt for notes tab switch
     std::unordered_map<uint64_t, float> g_card_body_h;
     std::unordered_map<uint64_t, float> g_card_anim_h;
     std::unordered_set<uint64_t>        g_card_closing;
@@ -228,6 +227,63 @@ namespace ui
         snprintf(buf, sizeof(buf), "%s %d, %d", months[m - 1], d, y);
         return std::string(buf);
     }
+    // Shown in place of a note while the "reveal notes" reprompt is on and the note
+    // hasn't been revealed. Clicking "Reveal notes" asks for the master password; the
+    // approval is picked up here on a later frame. Returns true while the note is locked.
+    static bool DrawNotesLockedBox(const char* id, uint64_t rowKey, float width)
+    {
+        if (g_notes_reprompt_pending == rowKey && IsRepromptApproved(RepromptAction::RevealNotes))
+        {
+            g_notes_visible.insert(rowKey);
+            ClearRepromptApproval(RepromptAction::RevealNotes);
+            g_notes_reprompt_pending = 0;
+        }
+        if (!cfg::get_reprompt_reveal_notes() || g_notes_visible.count(rowKey))
+            return false;
+
+        const bool dk = IsDarkTheme();
+        const float frameH = 60.0f;
+        ImVec2 fpos = ImGui::GetCursorScreenPos();
+        ImDrawList* ndl = ImGui::GetWindowDrawList();
+        ndl->AddRectFilled(fpos, ImVec2(fpos.x + width, fpos.y + frameH),
+            dk ? IM_COL32(255,255,255,4) : IM_COL32(0,0,0,4), 6.0f);
+        ndl->AddRect(fpos, ImVec2(fpos.x + width, fpos.y + frameH),
+            dk ? IM_COL32(255,255,255,20) : IM_COL32(0,0,0,20), 6.0f);
+
+        const char* ico = ICON_MDI_LOCK;
+        const char* label = "Reveal notes";
+        ImVec2 icoSz = ImGui::CalcTextSize(ico);
+        ImVec2 lblSz = ImGui::CalcTextSize(label);
+        float totalW = icoSz.x + 4.0f + lblSz.x;
+        float cx = fpos.x + (width - totalW) * 0.5f;
+        float cy = fpos.y + (frameH - lblSz.y) * 0.5f;
+
+        ImGui::SetCursorScreenPos(ImVec2(cx, cy));
+        ImGui::InvisibleButton(id, ImVec2(totalW, lblSz.y));
+        bool hov = ImGui::IsItemHovered();
+        bool clk = ImGui::IsItemClicked();
+        ImU32 col = ImGui::GetColorU32(hov ? ImGuiCol_Text : ImGuiCol_TextDisabled);
+        ndl->AddText(ImVec2(cx, cy), col, ico);
+        ndl->AddText(ImVec2(cx + icoSz.x + 4.0f, cy), col, label);
+        if (hov)
+        {
+            float uy = cy + lblSz.y + 1.0f;
+            ndl->AddLine(ImVec2(cx + icoSz.x + 4.0f, uy), ImVec2(cx + totalW, uy), col, 1.0f);
+        }
+        if (clk)
+        {
+            g_notes_reprompt_pending = rowKey;
+            if (RequestReprompt(RepromptAction::RevealNotes, ""))
+            {
+                g_notes_visible.insert(rowKey);
+                g_notes_reprompt_pending = 0;
+            }
+        }
+        ImGui::SetCursorScreenPos(ImVec2(fpos.x, fpos.y + frameH));
+        ImGui::Dummy(ImVec2(0, 0));
+        return true;
+    }
+
     // Forward declaration (defined later, after row helpers).
     // Renders the password security analysis card. Navigation to a sibling
     // credential (via the "Reused across N other" link list) is handled
@@ -1754,13 +1810,6 @@ namespace ui
                 int& rcTab = s_rc_tab[c.id];
                 if (!hasSecurityRC && rcTab == 0) rcTab = 1;
 
-                // Deferred reprompt approval for notes tab switch
-                if (g_notes_tab_reprompt_cred_id == c.id && IsRepromptApproved(RepromptAction::RevealNotes))
-                {
-                    rcTab = 1;
-                    ClearRepromptApproval(RepromptAction::RevealNotes);
-                    g_notes_tab_reprompt_cred_id = -1;
-                }
 
                 // Tab bar — icon button widget style
                 {
@@ -1825,15 +1874,7 @@ namespace ui
                         ImGui::InvisibleButton(tabs[i].id, ImVec2(w, tabH));
                         bool hov = ImGui::IsItemHovered();
                         if (ImGui::IsItemClicked())
-                        {
-                            if (tabs[i].idx == 1 && cfg::get_reprompt_reveal_notes())
-                            {
-                                g_notes_tab_reprompt_cred_id = c.id;
-                                RequestReprompt(RepromptAction::RevealNotes, "");
-                            }
-                            else
-                                rcTab = tabs[i].idx;
-                        }
+                            rcTab = tabs[i].idx;
 
                         {
                             ImDrawFlags rndFlags = 0;
@@ -1899,25 +1940,22 @@ namespace ui
                     const float notesH = 120.0f;
                     const float notesW = rightColW - 16.0f;
 
-                    ImGui::PushStyleColor(ImGuiCol_FrameBg, IsDarkTheme() ? IM_COL32(255,255,255,4) : IM_COL32(0,0,0,4));
-                    ImGui::PushStyleColor(ImGuiCol_Border,  IsDarkTheme() ? IM_COL32(255,255,255,20) : IM_COL32(0,0,0,20));
-                    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 10.0f));
-                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
-
                     if (eb.active)
                     {
+                        ImGui::PushStyleColor(ImGuiCol_FrameBg, IsDarkTheme() ? IM_COL32(255,255,255,4) : IM_COL32(0,0,0,4));
+                        ImGui::PushStyleColor(ImGuiCol_Border,  IsDarkTheme() ? IM_COL32(255,255,255,20) : IM_COL32(0,0,0,20));
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 10.0f));
+                        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
                         InputTextMultilineString("##notes_edit", &eb.notes, ImVec2(notesW, notesH), 0);
+                        ImGui::PopStyleVar(3);
+                        ImGui::PopStyleColor(2);
                     }
-                    else
+                    else if (!DrawNotesLockedBox("##notes_reveal_blocker", rowKey, notesW))
                     {
                         std::string notesDisplay = c.notes.empty() ? "No notes." : c.notes;
-                        InputTextMultilineString("##notes_view", &notesDisplay, ImVec2(notesW, notesH),
-                            ImGuiInputTextFlags_ReadOnly);
+                        NotesDisplayCard("##notes_view", notesDisplay.c_str(), notesW);
                     }
-
-                    ImGui::PopStyleVar(3);
-                    ImGui::PopStyleColor(2);
                 }
             }
 
@@ -2469,7 +2507,10 @@ namespace ui
         }
         else if (c.type == CredType::SecureNote && cols.sub_note)
         {
-            subBuf = c.notes.substr(0, 40);
+            if (cfg::get_reprompt_reveal_notes())
+                subBuf = "Secure Note";
+            else
+                subBuf = c.notes.substr(0, 40);
             if (!subBuf.empty()) subText = subBuf.c_str();
         }
 
@@ -2733,7 +2774,19 @@ namespace ui
                         g_field_accent_active = isNew || !!(c.changed_fields & FCF_Phone);
                         DrawCopyRow("phone", ICON_MDI_PHONE, c.phone, iconColW, innerValW, innerW, iconBtnSz, rowSpacing);
                     }
-                    // SecureNote: group only (notes shown in right column)
+                    else if (c.type == CredType::SecureNote)
+                    {
+                        const bool snLocked = cfg::get_reprompt_reveal_notes() && !g_notes_visible.count(rowKey);
+
+                        if (snLocked)
+                            ImGui::BeginDisabled();
+
+                        g_field_accent_active = false;
+                        DrawCopyRow("copy_notes_d", ICON_MDI_CONTENT_COPY, c.notes, iconColW, innerValW, innerW, iconBtnSz, rowSpacing, "Copy notes");
+
+                        if (snLocked)
+                            ImGui::EndDisabled();
+                    }
 
                     if (!c.group.empty()) {
                         DrawRowDivider();
@@ -2772,13 +2825,6 @@ namespace ui
                 int& rcTab = s_rc_tab_d[c.id];
                 if (!hasSecurityRC && rcTab == 0) rcTab = 1;
 
-                // Deferred reprompt approval for notes tab switch
-                if (g_notes_tab_reprompt_cred_id == c.id && IsRepromptApproved(RepromptAction::RevealNotes))
-                {
-                    rcTab = 1;
-                    ClearRepromptApproval(RepromptAction::RevealNotes);
-                    g_notes_tab_reprompt_cred_id = -1;
-                }
 
                 // Tab bar — icon button widget style
                 {
@@ -2842,15 +2888,7 @@ namespace ui
                         ImGui::InvisibleButton(tabs[i].id, ImVec2(w, tabH));
                         bool hov = ImGui::IsItemHovered();
                         if (ImGui::IsItemClicked())
-                        {
-                            if (tabs[i].idx == 1 && cfg::get_reprompt_reveal_notes())
-                            {
-                                g_notes_tab_reprompt_cred_id = c.id;
-                                RequestReprompt(RepromptAction::RevealNotes, "");
-                            }
-                            else
-                                rcTab = tabs[i].idx;
-                        }
+                            rcTab = tabs[i].idx;
 
                         {
                             ImDrawFlags rndFlags = 0;
@@ -2915,24 +2953,12 @@ namespace ui
                 {
                     const float notesW = rightColW - 16.0f - rcPadRight;
 
-                    ImGui::PushStyleColor(ImGuiCol_FrameBg, IsDarkTheme() ? IM_COL32(255,255,255,4) : IM_COL32(0,0,0,4));
-                    ImGui::PushStyleColor(ImGuiCol_Border,  IsDarkTheme() ? IM_COL32(255,255,255,20) : IM_COL32(0,0,0,20));
-                    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 10.0f));
-                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
-
-                    // Auto-fit notes height to content (matches Windows ui_views.cpp:2099-2103).
-                    // Fixed 120px looked oversized for short notes like "pw ip".
-                    std::string notesDisplay = c.notes.empty() ? "No notes." : c.notes;
-                    ImVec2 fpad(12.0f, 10.0f);
-                    float innerW = notesW - fpad.x * 2;
-                    ImVec2 tSz = ImGui::CalcTextSize(notesDisplay.c_str(), nullptr, false, innerW);
-                    float notesH = ImMax(tSz.y + fpad.y * 2, 40.0f);
-                    InputTextMultilineString("##notes_view", &notesDisplay, ImVec2(notesW, notesH),
-                        ImGuiInputTextFlags_ReadOnly);
-
-                    ImGui::PopStyleVar(3);
-                    ImGui::PopStyleColor(2);
+                    if (!DrawNotesLockedBox("##notes_reveal_blocker_d", rowKey, notesW))
+                    {
+                        // Wrapped card that grows to fit the note (matches the Security tab).
+                        std::string notesDisplay = c.notes.empty() ? "No notes." : c.notes;
+                        NotesDisplayCard("##notes_view", notesDisplay.c_str(), notesW);
+                    }
                 }
             }
 
@@ -3225,9 +3251,7 @@ namespace ui
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, fpad);
             ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
-            std::string notesDisplay = c.notes;
-            InputTextMultilineString("##popup_notes", &notesDisplay, ImVec2(noteW, notesH),
-                ImGuiInputTextFlags_ReadOnly);
+            NotesDisplayWrapped("##popup_notes", c.notes.c_str(), ImVec2(noteW, notesH));
             ImGui::PopStyleVar(3);
             ImGui::PopStyleColor(2);
         }
@@ -3400,7 +3424,10 @@ namespace ui
             } else if (c.type == CredType::Identity) {
                 subtitle = MaskIfPrivate(c.full_name) ? MaskIfPrivate(c.full_name) : c.full_name;
             } else if (c.type == CredType::SecureNote) {
-                subtitle = c.notes.substr(0, 60);
+                if (cfg::get_reprompt_reveal_notes() && !g_notes_visible.count(rowKey))
+                    subtitle = "Secure Note";
+                else
+                    subtitle = c.notes.substr(0, 60);
             } else {
                 const char* m = !c.email.empty() ? MaskIfPrivate(c.email) : MaskIfPrivate(c.user);
                 subtitle = m ? m : (!c.email.empty() ? c.email : c.user);
@@ -3670,8 +3697,7 @@ namespace ui
                             ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(0, 0, 0, 0));
                             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, fpad);
                             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-                            InputTextMultilineString("##tile_notes_view", &notesDisplay, ImVec2(notesW, notesH),
-                                ImGuiInputTextFlags_ReadOnly);
+                            NotesDisplayWrapped("##tile_notes_view", notesDisplay.c_str(), ImVec2(notesW, notesH));
                             if (ImGui::IsItemActive()) interaction_consumed = true;
                             ImGui::PopStyleVar(2);
                             ImGui::PopStyleColor();
@@ -5360,7 +5386,12 @@ namespace ui
                     break;
                 case CredType::SecureNote:
                     if (cols.sub_note)
-                        subtitle = it.notes.substr(0, 40);
+                    {
+                        if (cfg::get_reprompt_reveal_notes())
+                            subtitle = "Secure Note";
+                        else
+                            subtitle = it.notes.substr(0, 40);
+                    }
                     break;
                 }
 
@@ -6201,118 +6232,6 @@ namespace ui
         else if (c.type == CredType::SecureNote)
         {
             g_field_accent_active = false;
-            if (!c.notes.empty())
-            {
-                const uint64_t rowKey = MakeRowKey(activeVaultKey, c.id);
-
-                // Check deferred reprompt approval
-                if (g_notes_reprompt_pending == rowKey && IsRepromptApproved(RepromptAction::RevealNotes))
-                {
-                    g_notes_visible.insert(rowKey);
-                    ClearRepromptApproval(RepromptAction::RevealNotes);
-                    g_notes_reprompt_pending = 0;
-                }
-                bool notesRevealed = g_notes_visible.count(rowKey) != 0;
-
-                if (notesRevealed)
-                {
-                    // "Hide notes" link with chevron
-                    {
-                        const char* linkLabel = "Hide notes";
-                        const char* chevron = " " ICON_MDI_CHEVRON_UP;
-                        ImVec2 textSz = ImGui::CalcTextSize(linkLabel);
-                        ImVec2 chevSz = ImGui::CalcTextSize(chevron);
-                        ImVec2 totalSz(textSz.x + chevSz.x, textSz.y);
-
-                        ImVec2 pos = ImGui::GetCursorScreenPos();
-                        ImGui::InvisibleButton("##tp_securenote_hide", totalSz);
-                        bool clicked = ImGui::IsItemClicked();
-                        bool hovered = ImGui::IsItemHovered();
-
-                        ImU32 col = ImGui::GetColorU32(hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-                        ImDrawList* dl2 = ImGui::GetWindowDrawList();
-                        dl2->AddText(pos, col, linkLabel);
-                        dl2->AddText(ImVec2(pos.x + textSz.x, pos.y), col, chevron);
-
-                        if (hovered)
-                        {
-                            float y = pos.y + textSz.y + 1.0f;
-                            dl2->AddLine(ImVec2(pos.x, y), ImVec2(pos.x + textSz.x, y), col, 1.0f);
-                        }
-
-                        if (clicked)
-                            g_notes_visible.erase(rowKey);
-                    }
-                    ImGui::Spacing();
-                    ImGui::Spacing();
-
-                    // Read-only notes display
-                    std::string notesDisplay = c.notes;
-                    float notesInlineW = ImGui::GetContentRegionAvail().x;
-                    ImGui::PushStyleColor(ImGuiCol_FrameBg, IsDarkTheme() ? IM_COL32(255,255,255,4) : IM_COL32(0,0,0,4));
-                    ImGui::PushStyleColor(ImGuiCol_Border,  IsDarkTheme() ? IM_COL32(255,255,255,20) : IM_COL32(0,0,0,20));
-                    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 10.0f));
-                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
-                    // Wrapped read-only notes display
-                    {
-                        ImVec2 fpad = ImGui::GetStyle().FramePadding;
-                        ImVec2 fpos = ImGui::GetCursorScreenPos();
-                        float innerW = notesInlineW - fpad.x * 2;
-                        ImVec2 tSz = ImGui::CalcTextSize(notesDisplay.c_str(), nullptr, false, innerW);
-                        float frameH = ImMax(tSz.y + fpad.y * 2, 60.0f);
-                        ImDrawList* ndl = ImGui::GetWindowDrawList();
-                        ndl->AddRectFilled(fpos, ImVec2(fpos.x + notesInlineW, fpos.y + frameH),
-                            ImGui::GetColorU32(ImGuiCol_FrameBg), 6.0f);
-                        ndl->AddRect(fpos, ImVec2(fpos.x + notesInlineW, fpos.y + frameH),
-                            ImGui::GetColorU32(ImGuiCol_Border), 6.0f);
-                        ImGui::SetCursorScreenPos(ImVec2(fpos.x + fpad.x, fpos.y + fpad.y));
-                        float wrapX = ImGui::GetCursorPosX() + innerW;
-                        ImGui::PushTextWrapPos(wrapX);
-                        ImGui::TextUnformatted(notesDisplay.c_str());
-                        ImGui::PopTextWrapPos();
-                        ImGui::SetCursorScreenPos(ImVec2(fpos.x, fpos.y + frameH));
-                    }
-                    ImGui::PopStyleVar(3);
-                    ImGui::PopStyleColor(2);
-                }
-                else
-                {
-                    // "Reveal notes" link with chevron
-                    const char* linkLabel = "Reveal notes";
-                    const char* chevron = " " ICON_MDI_CHEVRON_DOWN;
-                    ImVec2 textSz = ImGui::CalcTextSize(linkLabel);
-                    ImVec2 chevSz = ImGui::CalcTextSize(chevron);
-                    ImVec2 totalSz(textSz.x + chevSz.x, textSz.y);
-
-                    ImVec2 pos = ImGui::GetCursorScreenPos();
-                    ImGui::InvisibleButton("##tp_securenote_reveal", totalSz);
-                    bool clicked = ImGui::IsItemClicked();
-                    bool hovered = ImGui::IsItemHovered();
-
-                    ImU32 col = ImGui::GetColorU32(hovered ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-                    ImDrawList* dl2 = ImGui::GetWindowDrawList();
-                    dl2->AddText(pos, col, linkLabel);
-                    dl2->AddText(ImVec2(pos.x + textSz.x, pos.y), col, chevron);
-
-                    if (hovered)
-                    {
-                        float y = pos.y + textSz.y + 1.0f;
-                        dl2->AddLine(ImVec2(pos.x, y), ImVec2(pos.x + textSz.x, y), col, 1.0f);
-                    }
-
-                    if (clicked)
-                    {
-                        g_notes_reprompt_pending = rowKey;
-                        if (RequestReprompt(RepromptAction::RevealNotes, ""))
-                        {
-                            g_notes_visible.insert(rowKey);
-                            g_notes_reprompt_pending = 0;
-                        }
-                    }
-                }
-                ImGui::Spacing();
-            }
         }
         g_field_accent_active = false;
 
@@ -6326,7 +6245,7 @@ namespace ui
 
         // Tabbed section: Security Analysis + Notes (below password/security card)
         {
-            bool hasNotes = (c.type != CredType::SecureNote && !c.notes.empty());
+            bool hasNotes = !c.notes.empty();
             bool hasSecurity = (c.type == CredType::Password);
 
             if (hasNotes || hasSecurity)
@@ -6340,13 +6259,6 @@ namespace ui
                 // Default to security if available, otherwise notes
                 if (!hasSecurity && activeTab == 0) activeTab = 1;
 
-                // Deferred reprompt approval for notes tab switch
-                if (g_notes_tab_reprompt_cred_id == c.id && IsRepromptApproved(RepromptAction::RevealNotes))
-                {
-                    activeTab = 1;
-                    ClearRepromptApproval(RepromptAction::RevealNotes);
-                    g_notes_tab_reprompt_cred_id = -1;
-                }
                 if (!hasNotes && activeTab == 1) activeTab = 0;
 
                 // Draw split-pill tab bar
@@ -6418,15 +6330,7 @@ namespace ui
                         ImGui::InvisibleButton(tabs[i].id, ImVec2(w, tabH));
                         bool hov = ImGui::IsItemHovered();
                         if (ImGui::IsItemClicked())
-                        {
-                            if (tabs[i].idx == 1 && cfg::get_reprompt_reveal_notes())
-                            {
-                                g_notes_tab_reprompt_cred_id = c.id;
-                                RequestReprompt(RepromptAction::RevealNotes, "");
-                            }
-                            else
-                                activeTab = tabs[i].idx;
-                        }
+                            activeTab = tabs[i].idx;
 
                         // Hover highlight
                         {
@@ -6490,35 +6394,9 @@ namespace ui
                 }
                 else if (activeTab == 1 && hasNotes)
                 {
-                    ImGui::PushFont(render::FontSmall);
-                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImGuiCol_TextDisabled));
-                    ImGui::PushStyleColor(ImGuiCol_FrameBg, IsDarkTheme() ? IM_COL32(255,255,255,4) : IM_COL32(0,0,0,4));
-                    ImGui::PushStyleColor(ImGuiCol_Border,  IsDarkTheme() ? IM_COL32(255,255,255,20) : IM_COL32(0,0,0,20));
-                    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
-                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(12.0f, 10.0f));
-                    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.0f);
-                    {
-                        float notesW = ImGui::GetContentRegionAvail().x;
-                        ImVec2 fpad = ImGui::GetStyle().FramePadding;
-                        float innerW = notesW - fpad.x * 2;
-                        ImVec2 tSz = ImGui::CalcTextSize(c.notes.c_str(), nullptr, false, innerW);
-                        float frameH = ImMax(tSz.y + fpad.y * 2, 40.0f);
-                        ImVec2 fpos = ImGui::GetCursorScreenPos();
-                        ImDrawList* ndl = ImGui::GetWindowDrawList();
-                        ndl->AddRectFilled(fpos, ImVec2(fpos.x + notesW, fpos.y + frameH),
-                            ImGui::GetColorU32(ImGuiCol_FrameBg), 6.0f);
-                        ndl->AddRect(fpos, ImVec2(fpos.x + notesW, fpos.y + frameH),
-                            ImGui::GetColorU32(ImGuiCol_Border), 6.0f);
-                        ImGui::SetCursorScreenPos(ImVec2(fpos.x + fpad.x, fpos.y + fpad.y));
-                        float wrapX = ImGui::GetCursorPosX() + innerW;
-                        ImGui::PushTextWrapPos(wrapX);
-                        ImGui::TextUnformatted(c.notes.c_str());
-                        ImGui::PopTextWrapPos();
-                        ImGui::SetCursorScreenPos(ImVec2(fpos.x, fpos.y + frameH));
-                    }
-                    ImGui::PopStyleVar(3);
-                    ImGui::PopStyleColor(3);
-                    ImGui::PopFont();
+                    const float notesW = ImGui::GetContentRegionAvail().x;
+                    if (!DrawNotesLockedBox("##notes_reveal_blocker_tp", MakeRowKey(activeVaultKey, c.id), notesW))
+                        NotesDisplayCard("##tp_notes_view", c.notes.c_str(), notesW);
                 }
 
                 ImGui::Spacing();
@@ -7229,8 +7107,15 @@ namespace ui
                     if (ImGui::TableSetColumnIndex(3))
                     {
                         float colW = ImGui::GetContentRegionAvail().x;
-                        std::string preview = c.notes.substr(0, 80);
-                        TextEllipsisClipped(preview.c_str(), colW);
+                        const bool noteLocked = cfg::get_reprompt_reveal_notes() &&
+                            !g_notes_visible.count(MakeRowKey(activeVaultKey, c.id));
+                        if (noteLocked)
+                            ImGui::TextDisabled("Secure Note");
+                        else
+                        {
+                            std::string preview = c.notes.substr(0, 80);
+                            TextEllipsisClipped(preview.c_str(), colW);
+                        }
                     }
                 }
                 else
