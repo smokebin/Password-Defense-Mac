@@ -2432,6 +2432,7 @@ static void render_credential_modal(VaultState& v)
         case CredType::SecureNote:
             can_submit = !g_cred_modal.buf.title.empty();
             break;
+        case CredType::Passkey: break;  // never loaded into memory (cred_ops::load_all hides it)
         }
 
         // ---- Duplicate / reuse detection (non-blocking, informational) ----
@@ -2552,6 +2553,7 @@ static void render_credential_modal(VaultState& v)
             case CredType::SecureNote:
                 disabled_reason = "Title is required.";
                 break;
+            case CredType::Passkey: break;  // never loaded into memory (cred_ops::load_all hides it)
             }
         }
 
@@ -3010,14 +3012,23 @@ static void render_sync_modal()
                                     vault_db::set_cached_salt(result.encryption_salt);
 
                                     // Re-encrypt all credentials with new key
-                                    bool re_encrypt_ok = true;
+                                    // One transaction: rows not in memory (trash, passkeys) and the in-memory
+                                    // credentials move to the new key together, or not at all.
+                                    vault_db::begin_transaction();
+                                    std::unordered_set<std::string> in_memory;
+                                    for (const auto& c : v.creds) in_memory.insert(c.uuid);
+                                    bool re_encrypt_ok = cred_ops::rewrap_rows_not_in(in_memory, old_key, v.master_key);
                                     for (auto& c : v.creds) {
+                                        if (!re_encrypt_ok) break;
                                         if (!cred_ops::update(c.uuid, c, v.master_key)) {
                                             re_encrypt_ok = false;
                                             break;
                                         }
                                         c.is_dirty = true;
                                     }
+
+                                    if (re_encrypt_ok) vault_db::commit_transaction();
+                                    else vault_db::rollback_transaction();
 
                                     if (re_encrypt_ok) {
                                         enc::secure_zero(old_key);
@@ -5736,14 +5747,23 @@ static void render_unlocked_screen()
                             vault_db::set_cached_salt(server_salt);
 
                             // Re-encrypt all credentials with new key
-                            bool re_encrypt_ok = true;
+                            // One transaction: rows not in memory (trash, passkeys) and the in-memory
+                            // credentials move to the new key together, or not at all.
+                            vault_db::begin_transaction();
+                            std::unordered_set<std::string> in_memory;
+                            for (const auto& c : v.creds) in_memory.insert(c.uuid);
+                            bool re_encrypt_ok = cred_ops::rewrap_rows_not_in(in_memory, old_key, v.master_key);
                             for (auto& c : v.creds) {
+                                if (!re_encrypt_ok) break;
                                 if (!cred_ops::update(c.uuid, c, v.master_key)) {
                                     re_encrypt_ok = false;
                                     break;
                                 }
                                 c.is_dirty = true;
                             }
+
+                            if (re_encrypt_ok) vault_db::commit_transaction();
+                            else vault_db::rollback_transaction();
 
                             if (re_encrypt_ok) {
                                 enc::secure_zero(old_key);
@@ -5810,14 +5830,23 @@ static void render_unlocked_screen()
                         auto old_key = std::move(v.master_key);
                         v.master_key = std::move(new_key);
 
-                        bool re_encrypt_ok = true;
+                        // One transaction: rows not in memory (trash, passkeys) and the in-memory
+                        // credentials move to the new key together, or not at all.
+                        vault_db::begin_transaction();
+                        std::unordered_set<std::string> in_memory;
+                        for (const auto& c : v.creds) in_memory.insert(c.uuid);
+                        bool re_encrypt_ok = cred_ops::rewrap_rows_not_in(in_memory, old_key, v.master_key);
                         for (auto& c : v.creds) {
+                            if (!re_encrypt_ok) break;
                             if (!cred_ops::update(c.uuid, c, v.master_key)) {
                                 re_encrypt_ok = false;
                                 break;
                             }
                             c.is_dirty = true;
                         }
+
+                        if (re_encrypt_ok) vault_db::commit_transaction();
+                        else vault_db::rollback_transaction();
 
                         if (re_encrypt_ok) {
                             enc::secure_zero(old_key);
@@ -5865,8 +5894,14 @@ static void render_unlocked_screen()
                         v.master_key = std::move(new_key);
 
                         // Re-encrypt all credentials with new key
-                        bool re_encrypt_ok = true;
+                        // One transaction: rows not in memory (trash, passkeys) and the in-memory
+                        // credentials move to the new key together, or not at all.
+                        vault_db::begin_transaction();
+                        std::unordered_set<std::string> in_memory;
+                        for (const auto& c : v.creds) in_memory.insert(c.uuid);
+                        bool re_encrypt_ok = cred_ops::rewrap_rows_not_in(in_memory, old_key, v.master_key);
                         for (auto& c : v.creds) {
+                            if (!re_encrypt_ok) break;
                             // c.password already has plaintext from load_all()
                             // Just update in DB with new key
                             if (!cred_ops::update(c.uuid, c, v.master_key)) {
@@ -5875,6 +5910,9 @@ static void render_unlocked_screen()
                             }
                             c.is_dirty = true;  // Mark for sync
                         }
+
+                        if (re_encrypt_ok) vault_db::commit_transaction();
+                        else vault_db::rollback_transaction();
 
                         if (re_encrypt_ok) {
                             enc::secure_zero(old_key);
@@ -6817,6 +6855,7 @@ static void render_unlocked_screen()
                         case CredType::CreditCard: cCd++; break;
                         case CredType::Identity:   cId++; break;
                         case CredType::SecureNote: cNt++; break;
+                        case CredType::Passkey: break;  // never loaded into memory (cred_ops::load_all hides it)
                     }
                     if (!c.group.empty())
                     {

@@ -86,6 +86,15 @@ namespace cred_ops {
     // Update existing Credential by UUID
     bool update(const std::string& uuid, const Credential& c, const std::vector<uint8_t>& master_key);
 
+    // Key change (salt migration): re-encrypt every live or trashed row NOT in
+    // `skip_uuids` from old_key to new_key, copying the decrypted blob byte for byte.
+    // Covers what the in-memory loop can't: trash and hidden types (passkeys).
+    // Rows that don't decrypt under old_key are left as they are. Call inside the
+    // caller's transaction; false = a write failed (roll back).
+    bool rewrap_rows_not_in(const std::unordered_set<std::string>& skip_uuids,
+                            const std::vector<uint8_t>& old_key,
+                            const std::vector<uint8_t>& new_key);
+
     // Encrypt a credential (for save_vault_to_disk — preserves timestamps)
     std::vector<uint8_t> encrypt_cred_public(const Credential& c, const std::vector<uint8_t>& key, const std::string& uuid);
 

@@ -30,6 +30,11 @@ struct Credential
     std::string website;
     std::string group;
     std::vector<std::string> tags;     // Multiple tags per credential
+
+    // Blob keys this client doesn't model (newer clients' fields, passkey data),
+    // as a JSON object string. Kept by from_json and written back by to_json so
+    // saving here never drops another client's data.
+    std::string extra_json;
     std::string notes;
     std::string totp_secret;          // Base32-encoded TOTP secret (empty = no TOTP)
 
