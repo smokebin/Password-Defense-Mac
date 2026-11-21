@@ -5393,6 +5393,7 @@ namespace ui
                             subtitle = it.notes.substr(0, 40);
                     }
                     break;
+                case CredType::Passkey: break;  // never loaded into memory (cred_ops::load_all hides it)
                 }
 
                 // Title line in regular font, subtitle in small font

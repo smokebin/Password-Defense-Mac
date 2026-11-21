@@ -94,6 +94,7 @@ std::string serialize_credential_for_share(const Credential& c, const std::strin
     case CredType::SecureNote:
         j["notes"] = c.notes;
         break;
+    case CredType::Passkey: break;  // never loaded into memory (cred_ops::load_all hides it)
     }
     return j.dump();
 }

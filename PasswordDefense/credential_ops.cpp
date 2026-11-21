@@ -19,6 +19,23 @@ namespace cred_ops {
     // ONE place to flow through the DB blob + the undo/recovery snapshots.
     // ----------------------------
 
+    // Keys to_json writes itself; everything else in a blob is passthrough.
+    static const char* const kModeledBlobKeys[] = {
+        "title", "email", "user", "password", "website", "group", "notes", "totp_secret",
+        "is_favorite", "is_pinned", "expires_at_ms", "expiry_action", "type",
+        "card_number", "card_expiry", "card_cvv", "card_brand", "cardholder_name",
+        "card_address", "card_city", "card_postal_code",
+        "full_name", "id_type", "id_number", "date_of_birth", "expiry_date", "country", "address", "phone",
+        "tags", "password_history",
+    };
+
+    static bool is_modeled_blob_key(const std::string& key)
+    {
+        for (const char* k : kModeledBlobKeys)
+            if (key == k) return true;
+        return false;
+    }
+
     nlohmann::json to_json(const Credential& c)
     {
         nlohmann::json j = {
@@ -71,11 +88,29 @@ namespace cred_ops {
             j["address"] = c.card_address;
         }
 
+        // Passthrough: write back keys this client doesn't model.
+        if (!c.extra_json.empty()) {
+            auto extra = nlohmann::json::parse(c.extra_json, nullptr, false);
+            if (extra.is_object())
+                for (auto it = extra.begin(); it != extra.end(); ++it)
+                    if (!j.contains(it.key())) j[it.key()] = it.value();
+        }
+
         return j;
     }
 
     void from_json(const nlohmann::json& j, Credential& c)
     {
+        // Keep unmodeled keys first, so they survive even if a modeled field
+        // below has an unexpected type and throws.
+        c.extra_json.clear();
+        {
+            nlohmann::json extra = nlohmann::json::object();
+            for (auto it = j.begin(); it != j.end(); ++it)
+                if (!is_modeled_blob_key(it.key())) extra[it.key()] = it.value();
+            if (!extra.empty()) c.extra_json = extra.dump();
+        }
+
         c.title = j.value("title", "");
         c.email = j.value("email", "");
         c.user = j.value("user", "");
@@ -89,7 +124,9 @@ namespace cred_ops {
         c.expires_at_ms = j.value("expires_at_ms", int64_t(0));
         c.expiry_action = j.value("expiry_action", 0);
 
-        c.type = static_cast<CredType>(j.value("type", 0));
+        c.type = CredType::Password;
+        if (j.contains("type") && j["type"].is_number_integer())
+            c.type = static_cast<CredType>(j["type"].get<int>());
 
         c.card_number     = j.value("card_number", "");
         c.card_expiry     = j.value("card_expiry", "");
@@ -214,7 +251,8 @@ namespace cred_ops {
 
             // Only include if decryption succeeded (has some content)
             if (!c.title.empty() || !c.password.empty() || !c.user.empty()
-                || !c.card_number.empty() || !c.id_number.empty() || !c.notes.empty()) {
+                || !c.card_number.empty() || !c.id_number.empty() || !c.notes.empty()
+                || !c.extra_json.empty()) {
                 if (needs_migration && !c.uuid.empty())
                     migrate_uuids.push_back(c.uuid);
                 results.push_back(std::move(c));
@@ -232,6 +270,12 @@ namespace cred_ops {
                 }
             }
         }
+
+        // Passkeys and unknown types stay in the DB untouched (save_all leaves rows
+        // missing from memory alone) but never reach the UI, autofill or exports.
+        results.erase(std::remove_if(results.begin(), results.end(),
+                          [](const Credential& c) { return !IsUserVisibleType(c.type); }),
+                      results.end());
 
         // Assign sequential IDs for UI display (NOT for identity - use UUID)
         int display_id = 1;
@@ -255,8 +299,10 @@ namespace cred_ops {
             Credential c = decrypt_row(row, master_key);
 
             if (!c.title.empty() || !c.password.empty() || !c.user.empty()
-                || !c.card_number.empty() || !c.id_number.empty() || !c.notes.empty()) {
-                results.push_back(std::move(c));
+                || !c.card_number.empty() || !c.id_number.empty() || !c.notes.empty()
+                || !c.extra_json.empty()) {
+                if (IsUserVisibleType(c.type))
+                    results.push_back(std::move(c));
             }
         }
 
@@ -288,6 +334,31 @@ namespace cred_ops {
     std::vector<uint8_t> encrypt_cred_public(const Credential& c, const std::vector<uint8_t>& key, const std::string& uuid)
     {
         return encrypt_cred(c, key, uuid);
+    }
+
+    bool rewrap_rows_not_in(const std::unordered_set<std::string>& skip_uuids,
+                            const std::vector<uint8_t>& old_key,
+                            const std::vector<uint8_t>& new_key)
+    {
+        if (old_key.empty() || new_key.empty() || !vault_db::is_open())
+            return false;
+
+        auto rows = vault_db::get_all_credentials();
+        auto trashed = vault_db::get_deleted_credentials();
+        rows.insert(rows.end(), trashed.begin(), trashed.end());
+
+        for (const auto& row : rows) {
+            if (row.uuid.empty() || row.encrypted_blob.empty() || skip_uuids.count(row.uuid))
+                continue;
+            std::string json = enc::decrypt_credential(row.encrypted_blob, old_key, row.uuid);
+            if (json.empty())
+                continue;  // not under old_key (already rewrapped, or unreadable): leave it
+            auto blob = enc::encrypt_credential(json, new_key, row.uuid);
+            enc::secure_zero(json);
+            if (blob.empty() || !vault_db::update_credential(row.uuid, blob, row.updated_at_ms))
+                return false;
+        }
+        return true;
     }
 
     bool update(const std::string& uuid, const Credential& c, const std::vector<uint8_t>& master_key)
