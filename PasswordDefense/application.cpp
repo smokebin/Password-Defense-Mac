@@ -995,6 +995,7 @@ static std::string BasenameNoExt(const std::string& path)
 static void CreatePreOpBackup(const VaultState& v, const char* tag)
 {
     if (v.vault_path.empty()) return;
+    if (!cfg::get_auto_backup()) return;   // honor Settings > Backup > Auto-backup
 
     std::string dir = helpers::GetDefaultBackupDir();
 
@@ -1009,7 +1010,7 @@ static void CreatePreOpBackup(const VaultState& v, const char* tag)
         dir + "/" + base + "_PRE-" + tag + "_" + ts + ".lbdb";
 
     helpers::CopyFileAtomic(v.vault_path, dst);
-    helpers::EnforceBackupRetention(dir, 20);
+    helpers::EnforceBackupRetention(dir, (size_t)cfg::get_backup_keep_count());
     g_backups_dirty = true;
 }
 
