@@ -3270,13 +3270,13 @@ namespace ui
                         ImGui::InputText("##share_url", url_buf, sizeof(url_buf), ImGuiInputTextFlags_ReadOnly);
 
                         ImGui::Spacing();
-                        if (StyledButton("##share_copy", ICON_MDI_CONTENT_COPY "  Copy Link", ImVec2(-1, 36)))
+                        if (StyledButtonLight("##share_copy", ICON_MDI_CONTENT_COPY "  Copy Link", ImVec2(-1, 36)))
                         {
                             ImGui::SetClipboardText(s.share_result_url.c_str());
                             ShowToast("Link copied to clipboard");
                         }
                         ImGui::Spacing();
-                        if (StyledButton("##share_close", "Close", ImVec2(-1, 32)))
+                        if (StyledButtonLight("##share_close", "Close", ImVec2(-1, 32)))
                         {
                             s.show_share_vault_modal = false;
                             ImGui::CloseCurrentPopup();
@@ -3287,12 +3287,12 @@ namespace ui
                         // ---- Error state ----
                         ImGui::TextColored(colors::Red, ICON_MDI_ALERT_CIRCLE "  %s", s.share_error.c_str());
                         ImGui::Spacing();
-                        if (StyledButton("##share_retry", "Retry", ImVec2(120, 32)))
+                        if (StyledButtonLight("##share_retry", "Retry", ImVec2(120, 32)))
                         {
                             s.share_error.clear();
                         }
                         ImGui::SameLine();
-                        if (StyledButton("##share_err_close", "Close", ImVec2(120, 32)))
+                        if (StyledButtonLight("##share_err_close", "Close", ImVec2(120, 32)))
                         {
                             s.show_share_vault_modal = false;
                             ImGui::CloseCurrentPopup();
@@ -3392,7 +3392,7 @@ namespace ui
                         ImGui::Spacing();
 
                         // Share button
-                        if (StyledButton("##share_go", ICON_MDI_SHARE_VARIANT "  Share", ImVec2(-1, 40)))
+                        if (StyledButtonLight("##share_go", ICON_MDI_SHARE_VARIANT "  Share", ImVec2(-1, 40)))
                         {
                             s.share_loading = true;
                         }

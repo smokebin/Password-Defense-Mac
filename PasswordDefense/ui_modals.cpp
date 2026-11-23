@@ -50,15 +50,19 @@ namespace ui
         ImGuiIO& io = ImGui::GetIO();
         const float dt = io.DeltaTime;
 
-        const float toastW = 220.0f;
+        // Each toast fits its message: icon area + text + right pad, at least
+        // minToastW, at most 40% of the window; longer text ends in "...".
+        const float minToastW = 220.0f;
+        const float maxToastW = ImMax(minToastW, io.DisplaySize.x * 0.40f);
+        const float textX = 32.0f;
+        const float rightPad = 12.0f;
         const float toastH = 36.0f;
         const float padding = 12.0f;
         const float spacing = 8.0f;
         const float fadeTime = 0.25f;
         const float cornerRadius = 6.0f;
 
-        // Position: bottom-right
-        const float startX = io.DisplaySize.x - toastW - padding;
+        // Position: bottom-right (right edge anchored)
         float currentY = io.DisplaySize.y - padding;
 
         ImDrawList* dl = ImGui::GetForegroundDrawList();
@@ -84,6 +88,22 @@ namespace ui
 
             currentY -= toastH;
 
+            // Fit the message, ellipsizing past the cap. Trimming one byte at a
+            // time, back off continuation bytes so a UTF-8 character is never split.
+            std::string msg = t.message;
+            const float maxTextW = maxToastW - textX - rightPad;
+            if (ImGui::CalcTextSize(msg.c_str()).x > maxTextW) {
+                while (!msg.empty() && ImGui::CalcTextSize((msg + "...").c_str()).x > maxTextW) {
+                    msg.pop_back();
+                    while (!msg.empty() && ((unsigned char)msg.back() & 0xC0) == 0x80)
+                        msg.pop_back();
+                }
+                msg += "...";
+            }
+            const float toastW = ImClamp(textX + ImGui::CalcTextSize(msg.c_str()).x + rightPad,
+                                         minToastW, maxToastW);
+            const float startX = io.DisplaySize.x - toastW - padding;
+
             // Background
             ImU32 bgColor = GetToastColor(t.type);
             bgColor = (bgColor & 0x00FFFFFF) | ((ImU32)(alpha * 230) << 24);
@@ -99,8 +119,8 @@ namespace ui
             dl->AddText(iconPos, textCol, icon);
 
             // Message
-            ImVec2 textPos(startX + 32.0f, currentY + (toastH - ImGui::GetTextLineHeight()) * 0.5f);
-            dl->AddText(textPos, textCol, t.message.c_str());
+            ImVec2 textPos(startX + textX, currentY + (toastH - ImGui::GetTextLineHeight()) * 0.5f);
+            dl->AddText(textPos, textCol, msg.c_str());
 
             currentY -= spacing;
         }
@@ -278,7 +298,7 @@ namespace ui
             float totalBtnW = btnW * 2 + 8.0f;
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (modalW - totalBtnW) * 0.5f - 8.0f);
 
-            if (StyledButton("##reprompt_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed) {
+            if (StyledButtonLight("##reprompt_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed) {
                 g_reprompt_pending = RepromptAction::None;
                 g_reprompt_password_buf.clear();
                 g_reprompt_error.clear();
@@ -290,7 +310,7 @@ namespace ui
 
             bool can_submit = !g_reprompt_password_buf.empty() && !g_reprompt_locked_out;
             ImGui::BeginDisabled(!can_submit);
-            if ((StyledButton("##reprompt_confirm", "Confirm", ImVec2(btnW, btnH)) || submit_shortcut) && can_submit) {
+            if ((StyledButtonLight("##reprompt_confirm", "Confirm", ImVec2(btnW, btnH)) || submit_shortcut) && can_submit) {
                 // Verify password
                 if (g_reprompt_password_buf == g_reprompt_master_password) {
                     // Success
@@ -986,7 +1006,7 @@ namespace ui
             {
                 float btnW = 70;
                 ImGui::SetCursorPosX(ImGui::GetContentRegionMax().x - btnW);
-                if (StyledButton("##copy_recovery", "Copy", ImVec2(btnW, 28)))
+                if (StyledButtonLight("##copy_recovery", "Copy", ImVec2(btnW, 28)))
                 {
                     ImGui::SetClipboardText(s.recovery_key_display.c_str());
                     ShowToast("Recovery key copied", ToastType::Info);
@@ -1009,7 +1029,7 @@ namespace ui
 
                 bool disabled = !s_ack;
                 if (disabled) ImGui::BeginDisabled();
-                if (StyledButton("##recovery_continue", "Continue", ImVec2(btnW, 32)))
+                if (StyledButtonLight("##recovery_continue", "Continue", ImVec2(btnW, 32)))
                 {
                     // Securely clear the recovery key string
                     enc::secure_zero(s.recovery_key_display);
