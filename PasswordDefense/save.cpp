@@ -19,6 +19,7 @@
 #include <spawn.h>
 #include <sqlite3.h>
 #include <vector>
+#include "touchid.h"
 extern char** environ;
 #include <mach-o/dyld.h>
 #include <unistd.h>
@@ -1082,6 +1083,10 @@ namespace cfg {
 				add(v);
 				for (const char* side : { "-wal", "-shm", "-journal" })
 					add(v + side);
+
+				// Saved master password for Touch ID unlock of this vault.
+				const std::string tid = read_vault_state(v, "touchid_vault_id");
+				if (!tid.empty()) touchid::disable(tid);
 
 				// Backups of a destroyed vault must not outlive it ("<vault>_TAG_time.lbdb").
 				const std::string prefix = fs::path(v).stem().string() + "_";

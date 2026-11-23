@@ -363,6 +363,14 @@ namespace ui
         // 2FA setup state
         bool twofa_setup_open = false;
 
+        // Touch ID unlock. State is published by application.cpp each frame;
+        // touchid_toggle_clicked is a one-frame intent the app consumes.
+        bool touchid_available = false;    // hardware present + finger enrolled
+        bool touchid_enabled = false;      // on for the active vault
+        bool touchid_can_enable = false;   // unlocked with the master password (not a recovery key)
+        bool touchid_busy = false;         // a Touch ID prompt is open
+        bool touchid_toggle_clicked = false;
+
         // Trash bin modal
         bool trash_modal_open = false;
 

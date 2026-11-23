@@ -33,6 +33,8 @@
 #include "bridge_server.h" // Native-messaging Unix-socket bridge for the browser extension
 #include "save.h"          // Config persistence
 #include "app_internal.h"     // Shared declarations for split TUs
+#include "touchid.h"       // Touch ID unlock (Keychain, biometry-bound)
+#include <mutex>
 
 #ifdef __APPLE__
 #include <limits.h>
@@ -3587,8 +3589,12 @@ namespace {
 // save path to commit the restored state.
 static bool restore_recovery_snapshot_if_newer(VaultState& v);
 
-static bool load_vault_from_disk(const std::string& path, const std::string& password, VaultState& v)
+// out_wrong_password (optional): set when the password failed the key check —
+// lets Touch ID tell a changed password apart from other failures.
+static bool load_vault_from_disk(const std::string& path, const std::string& password, VaultState& v,
+                                 bool* out_wrong_password = nullptr)
 {
+    if (out_wrong_password) *out_wrong_password = false;
     v.clear_status();
 
     if (path.empty() || password.empty())
@@ -3643,6 +3649,7 @@ static bool load_vault_from_disk(const std::string& path, const std::string& pas
         enc::secure_zero(master_key);
         vault_db::close();
         v.set_status("Wrong password.", true);
+        if (out_wrong_password) *out_wrong_password = true;
         return false;
     }
 
@@ -3676,6 +3683,7 @@ static bool load_vault_from_disk(const std::string& path, const std::string& pas
                 enc::secure_zero(master_key);
                 vault_db::close();
                 v.set_status("Wrong password.", true);
+        if (out_wrong_password) *out_wrong_password = true;
                 return false;
             }
             verified = true;
@@ -4179,6 +4187,207 @@ static void TickAutosave()
             v.status_is_error = was_error;
         }
     }
+}
+
+// ============================================================
+// Touch ID unlock (see touchid.h)
+// ============================================================
+// The vault's master password is kept in the Keychain behind Touch ID and
+// fed through load_vault_from_disk, so key-check, 2FA and everything after
+// unlock behave exactly as for a typed password. Touch ID calls run on a
+// background queue; their results are posted here and applied by
+// TickTouchId on the UI thread.
+
+namespace {
+
+enum class TouchIdPurpose { Unlock, Enable };
+
+struct TouchIdResult {
+    bool ready = false;
+    TouchIdPurpose purpose = TouchIdPurpose::Unlock;
+    touchid::Status status = touchid::Status::Error;
+    std::string payload;      // secret (Unlock + Ok) or error text
+    std::string vault_path;
+    std::string account;
+};
+
+std::mutex        g_tid_mutex;
+TouchIdResult     g_tid_result;
+std::atomic<bool> g_tid_busy{false};
+
+// Selected vault's Touch ID account + enabled flag, cached so the locked
+// screen doesn't hit the DB file / Keychain every frame.
+struct TouchIdVaultState { std::string account; bool enabled = false; };
+std::string       g_tid_cache_path;
+TouchIdVaultState g_tid_cache;
+bool              g_tid_cache_valid = false;
+
+bool   g_tid_available = false;
+double g_tid_available_checked_at = -1.0;
+
+// One auto-prompt per locked period per vault; cleared on each unlock.
+std::string g_tid_auto_prompted_path;
+bool        g_tid_was_unlocked = false;
+
+void PostTouchIdResult(TouchIdPurpose purpose, touchid::Status status, std::string payload,
+                       const std::string& vault_path, const std::string& account)
+{
+    std::lock_guard<std::mutex> lk(g_tid_mutex);
+    if (g_tid_result.ready) sodium_memzero(g_tid_result.payload.data(), g_tid_result.payload.size());
+    g_tid_result.ready = true;
+    g_tid_result.purpose = purpose;
+    g_tid_result.status = status;
+    g_tid_result.payload = std::move(payload);
+    g_tid_result.vault_path = vault_path;
+    g_tid_result.account = account;
+}
+
+} // namespace
+
+// Per-vault Touch ID account id, kept in the vault's pm_sync_state. Not the
+// vault slug: several local vaults can share an empty slug. Read through a
+// temporary connection so the locked screen never disturbs the open vault.
+static TouchIdVaultState TouchIdStateFor(const std::string& path)
+{
+    if (path.empty()) return {};
+    if (g_tid_cache_valid && g_tid_cache_path == path) return g_tid_cache;
+
+    TouchIdVaultState st;
+    if (vault_db::exists(path)) {
+        st.account = vault_db::read_sync_state_from_file(path, "touchid_vault_id");
+        st.enabled = !st.account.empty() && touchid::is_enabled(st.account);
+    }
+    g_tid_cache_path = path;
+    g_tid_cache = st;
+    g_tid_cache_valid = true;
+    return st;
+}
+
+static void InvalidateTouchIdCache() { g_tid_cache_valid = false; }
+
+static void StartTouchIdUnlock(const std::string& path, const std::string& account)
+{
+    if (path.empty() || account.empty() || g_tid_busy.exchange(true)) return;
+    touchid::read_async(account, "unlock your vault",
+        [path, account](touchid::Status st, std::string payload) {
+            PostTouchIdResult(TouchIdPurpose::Unlock, st, std::move(payload), path, account);
+        });
+}
+
+static void TickTouchId()
+{
+    VaultState& v = ActiveVault();
+    const double now = ImGui::GetTime();
+
+    // canEvaluatePolicy allocates an LAContext — refresh every couple of seconds.
+    if (g_tid_available_checked_at < 0.0 || now - g_tid_available_checked_at > 2.0) {
+        g_tid_available = touchid::is_available();
+        g_tid_available_checked_at = now;
+    }
+
+    // Locked -> unlocked: allow one auto-prompt at the next lock, and re-arm
+    // the secret if Touch ID is on for this vault. A fingerprint change
+    // invalidates the stored item; the password just used is the right value.
+    if (v.unlocked && !g_tid_was_unlocked) {
+        g_tid_auto_prompted_path.clear();
+        if (!v.session_password.empty()) {
+            const TouchIdVaultState tid = TouchIdStateFor(v.vault_path);
+            if (tid.enabled) touchid::store_secret(tid.account, v.session_password, nullptr);
+        }
+    }
+    g_tid_was_unlocked = v.unlocked;
+
+    // Publish state for the Settings row.
+    const TouchIdVaultState tid = v.unlocked ? TouchIdStateFor(v.vault_path) : TouchIdVaultState{};
+    g_shell.touchid_available  = g_tid_available;
+    g_shell.touchid_enabled    = v.unlocked && tid.enabled;
+    g_shell.touchid_can_enable = v.unlocked && !v.session_password.empty();
+    g_shell.touchid_busy       = g_tid_busy.load();
+
+    // Settings toggle.
+    if (g_shell.touchid_toggle_clicked) {
+        g_shell.touchid_toggle_clicked = false;
+        if (v.unlocked && !g_tid_busy.load()) {
+            if (tid.enabled) {
+                touchid::disable(tid.account);
+                InvalidateTouchIdCache();
+                ui::ShowToast("Touch ID unlock turned off", ui::ToastType::Info);
+            } else if (!v.session_password.empty() && g_tid_available) {
+                std::string account = vault_db::get_sync_state("touchid_vault_id");
+                if (account.empty()) {
+                    std::vector<uint8_t> raw(16);
+                    randombytes_buf(raw.data(), raw.size());
+                    account = enc::bytes_to_hex(raw);
+                    vault_db::set_sync_state("touchid_vault_id", account);
+                }
+                g_tid_busy = true;
+                const std::string path = v.vault_path;
+                touchid::enable_async(account, v.session_password, "turn on Touch ID unlock",
+                    [path, account](touchid::Status st, std::string msg) {
+                        PostTouchIdResult(TouchIdPurpose::Enable, st, std::move(msg), path, account);
+                    });
+            }
+        }
+    }
+
+    // Apply a finished Touch ID call.
+    TouchIdResult r;
+    {
+        std::lock_guard<std::mutex> lk(g_tid_mutex);
+        if (!g_tid_result.ready) return;
+        r = std::move(g_tid_result);
+        g_tid_result = TouchIdResult{};
+    }
+    g_tid_busy = false;
+
+    if (r.purpose == TouchIdPurpose::Enable) {
+        InvalidateTouchIdCache();
+        if (r.status == touchid::Status::Ok) {
+            ui::ShowToast("Touch ID unlock turned on", ui::ToastType::Success);
+        } else if (r.status != touchid::Status::Cancelled) {
+            std::string msg = "Couldn't turn on Touch ID: " + r.payload;
+            ui::ShowToast(msg.c_str(), ui::ToastType::Error, 4.0f);
+        }
+        return;
+    }
+
+    // Unlock. Ignore results for a vault that's no longer the selected,
+    // locked one (the user switched vaults or typed the password meanwhile).
+    const bool still_wanted = !v.unlocked && !v.tofa_pending && v.vault_path == r.vault_path;
+    switch (r.status) {
+    case touchid::Status::Ok:
+        if (still_wanted) {
+            bool wrong_password = false;
+            load_vault_from_disk(r.vault_path, r.payload, v, &wrong_password);
+            if (v.unlocked) {
+                cfg::_path = v.vault_path;
+                cfg::update_db_path();
+                rebuild_groups(g_shell, v.creds); rebuild_tags(g_shell, v.creds);
+                ui::ForgetVaultRowState(GetActiveVaultKey());
+            } else if (wrong_password) {
+                // The vault's password changed since Touch ID stored it.
+                touchid::disable(r.account);
+                InvalidateTouchIdCache();
+                v.set_status("Touch ID was turned off because this vault's password changed. "
+                             "Unlock with your password, then turn it back on in Settings.", true);
+            }
+        }
+        break;
+    case touchid::Status::NotFound:
+        // Secret invalidated (fingerprints changed). The marker stays, so the
+        // next password unlock re-arms it.
+        if (still_wanted)
+            v.set_status("Your fingerprints changed. Unlock with your password once to keep using Touch ID.", true);
+        break;
+    case touchid::Status::Cancelled:
+        break;
+    case touchid::Status::Unavailable:
+    case touchid::Status::Error:
+        if (still_wanted)
+            v.set_status(r.payload.empty() ? "Touch ID unavailable." : r.payload.c_str(), true);
+        break;
+    }
+    sodium_memzero(r.payload.data(), r.payload.size());
 }
 
 // ============================================================
@@ -5052,6 +5261,35 @@ static void render_locked_screen()
             ImGui::SetTooltip("Select a vault first.");
         if ((hasVault || hasCloudVault) && !hasPw && ImGui::IsItemHovered(ImGuiHoveredFlags_Stationary))
             ImGui::SetTooltip("Enter your password.");
+    }
+
+    // ===========================================================
+    // Touch ID unlock
+    // ===========================================================
+    {
+        const TouchIdVaultState tid = TouchIdStateFor(v.vault_path);
+        if (!v.vault_path.empty() && tid.enabled && g_tid_available)
+        {
+            // Auto-prompt once per locked period — only while the app is
+            // frontmost, so an auto-lock doesn't pop a sheet over other apps.
+            if (g_tid_auto_prompted_path != v.vault_path && !g_tid_busy.load() && touchid::app_is_active())
+            {
+                g_tid_auto_prompted_path = v.vault_path;
+                StartTouchIdUnlock(v.vault_path, tid.account);
+            }
+
+            ImGui::Dummy(ImVec2(0, 4));
+            const bool busy = g_tid_busy.load();
+            if (busy) ImGui::BeginDisabled();
+            if (ui::StyledButton("##touchid_unlock",
+                                 busy ? ICON_MDI_FINGERPRINT "  Waiting for Touch ID..."
+                                      : ICON_MDI_FINGERPRINT "  Unlock with Touch ID",
+                                 ImVec2(ImGui::GetContentRegionAvail().x, 34.0f)))
+            {
+                StartTouchIdUnlock(v.vault_path, tid.account);
+            }
+            if (busy) ImGui::EndDisabled();
+        }
     }
 
     // ===========================================================
@@ -6748,9 +6986,12 @@ static void render_unlocked_screen()
     if (g_shell.active_screen == ui::Screen::Locked)
     {
         render_locked_screen();
-        // Keep retrying the shared bridge socket on the locked screen too, so
-        // this app takes over when the cloud app quits. The unlocked path calls
-        // it at the end of this function.
+        // These must run on the locked screen too: TickTouchId applies the
+        // Touch ID result that unlocks the vault (and checks availability /
+        // tracks lock->unlock transitions); TickBridge keeps retrying the shared
+        // socket so this app takes over when the cloud app quits. The unlocked
+        // path calls them at the end of this function.
+        TickTouchId();
         TickBridge();
         if (render_scroll)
             ui::EndShellScroll();
@@ -7456,6 +7697,7 @@ static void render_unlocked_screen()
     // ============================================================
     TickAutosave();
     TickAutoLock();
+    TickTouchId();
     TickBridge();
     TickCredentialExpiry();
 
