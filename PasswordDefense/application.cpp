@@ -1786,7 +1786,7 @@ static void render_dedup_modal()
         const float btnW = 110.0f, btnH = 32.0f;
         const float avail = ImGui::GetContentRegionAvail().x;
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - btnW);
-        if (ui::StyledButton("##dedup_close", "Close", ImVec2(btnW, btnH)))
+        if (ui::StyledButtonLight("##dedup_close", "Close", ImVec2(btnW, btnH)))
             close_modal();
         ImGui::EndPopup();
         ImGui::PopStyleVar(3);
@@ -1931,7 +1931,7 @@ static void render_dedup_modal()
     const float avail = ImGui::GetContentRegionAvail().x;
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - total);
 
-    if (ui::StyledButton("##dedup_cancel", "Cancel", ImVec2(cancelW, btnH)))
+    if (ui::StyledButtonLight("##dedup_cancel", "Cancel", ImVec2(cancelW, btnH)))
         close_modal();
     ImGui::SameLine(0, gap);
 
@@ -2025,7 +2025,7 @@ static void render_credential_modal(VaultState& v)
         {
             //float closeSize = ImGui::GetFrameHeight();
             //ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeSize);
-            //if (ui::StyledButton("##modal_cancel", ICON_MDI_CLOSE, ImVec2(closeSize, closeSize)) || escape_pressed)
+            //if (ui::StyledButtonLight("##modal_cancel", ICON_MDI_CLOSE, ImVec2(closeSize, closeSize)) || escape_pressed)
             //{
             //    g_cred_modal.Close();
             //    ImGui::CloseCurrentPopup();
@@ -2896,37 +2896,33 @@ static void render_sync_modal()
         // (uses default from cfg::get_sync_server_url() or fallback)
 
         // Email
-        ImGui::TextDisabled("Email");
         ImGui::SetNextItemWidth(fieldW);
-        ui::InputTextString("##sync_email", &g_sync_modal.email);
+        ui::InputTextString("Email##sync_email", &g_sync_modal.email);
 
         // Username (register only)
         if (g_sync_modal.Isregister_user()) {
             ImGui::Dummy(ImVec2(0, 4));
-            ImGui::TextDisabled("Username");
             ImGui::SetNextItemWidth(fieldW);
-            ui::InputTextString("##sync_username", &g_sync_modal.username);
+            ui::InputTextString("Username##sync_username", &g_sync_modal.username);
         }
 
         ImGui::Dummy(ImVec2(0, 4));
 
         // Password
-        ImGui::TextDisabled("Password");
         ImGui::SetNextItemWidth(fieldW);
         if (g_sync_modal.show_password)
-            ui::InputTextString("##sync_password", &g_sync_modal.password);
+            ui::InputTextString("Password##sync_password", &g_sync_modal.password);
         else
-            ui::InputTextPasswordReveal("##sync_password", &g_sync_modal.password);
+            ui::InputTextPasswordReveal("Password##sync_password", &g_sync_modal.password);
 
         // Confirm password (register only)
         if (g_sync_modal.Isregister_user()) {
             ImGui::Dummy(ImVec2(0, 4));
-            ImGui::TextDisabled("Confirm Password");
             ImGui::SetNextItemWidth(fieldW);
             if (g_sync_modal.show_password)
-                ui::InputTextString("##sync_password_confirm", &g_sync_modal.password_confirm);
+                ui::InputTextString("Confirm Password##sync_password_confirm", &g_sync_modal.password_confirm);
             else
-                ui::InputTextPasswordReveal("##sync_password_confirm", &g_sync_modal.password_confirm);
+                ui::InputTextPasswordReveal("Confirm Password##sync_password_confirm", &g_sync_modal.password_confirm);
         }
 
         ImGui::Checkbox2("Show password", &g_sync_modal.show_password);
@@ -2958,7 +2954,7 @@ static void render_sync_modal()
         float totalBtnW = btnW * 2 + 8.0f;
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + fieldW - totalBtnW);
 
-        if (ui::StyledButton("##sync_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed) {
+        if (ui::StyledButtonLight("##sync_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed) {
             g_sync_modal.Close();
             ImGui::CloseCurrentPopup();
         }
@@ -2967,7 +2963,7 @@ static void render_sync_modal()
 
         ImGui::BeginDisabled(!can_submit || g_sync_modal.loading);
         const char* submit_label = g_sync_modal.Islogin() ? "Sign In" : "Register";
-        bool submit_clicked = ui::StyledButton("##sync_submit", submit_label, ImVec2(btnW, btnH));
+        bool submit_clicked = ui::StyledButtonLight("##sync_submit", submit_label, ImVec2(btnW, btnH));
 
         if ((submit_clicked || submit_shortcut) && can_submit && !g_sync_modal.loading) {
             g_sync_modal.loading = true;
@@ -4570,12 +4566,12 @@ static void render_locked_screen()
         float btnW = (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x) * 0.5f;
 
         if (!canVerify) ImGui::BeginDisabled();
-        bool verify = ui::StyledButton("##tofa_verify", "Verify", ImVec2(btnW, 34.0f));
+        bool verify = ui::StyledButtonLight("##tofa_verify", "Verify", ImVec2(btnW, 34.0f));
         if (!canVerify) ImGui::EndDisabled();
 
         ImGui::SameLine();
 
-        if (ui::StyledButton("##tofa_cancel", "Cancel", ImVec2(btnW, 34.0f)))
+        if (ui::StyledButtonLight("##tofa_cancel", "Cancel", ImVec2(btnW, 34.0f)))
         {
             s_tofa_code.clear();
             vault_db::close();
@@ -5361,7 +5357,7 @@ static void render_locked_screen()
 
                 bool canRecover = !s_recovery_input.empty() && !v.vault_path.empty();
                 if (!canRecover) ImGui::BeginDisabled();
-                bool clickRecover = ui::StyledButton("##recover_btn", "Recover", ImVec2(btnW, 34.0f));
+                bool clickRecover = ui::StyledButtonLight("##recover_btn", "Recover", ImVec2(btnW, 34.0f));
                 if (!canRecover) ImGui::EndDisabled();
 
                 if ((enterRec && canRecover) || clickRecover)
@@ -6283,12 +6279,12 @@ static void render_unlocked_screen()
     // ============================================================
     {
         static bool    s_pwm_export_modal = false;
-        static char    s_pwm_export_pw1[256] = {};
-        static char    s_pwm_export_pw2[256] = {};
+        static std::string s_pwm_export_pw1;
+        static std::string s_pwm_export_pw2;
         static std::string s_pwm_export_error;
 
         static bool    s_pwm_import_modal = false;
-        static char    s_pwm_import_pw[256] = {};
+        static std::string s_pwm_import_pw;
         static std::string s_pwm_import_path;
         static std::string s_pwm_import_error;
 
@@ -6297,8 +6293,8 @@ static void render_unlocked_screen()
         {
             g_shell.export_pwm_clicked = false;
             s_pwm_export_modal = true;
-            sodium_memzero(s_pwm_export_pw1, sizeof(s_pwm_export_pw1));
-            sodium_memzero(s_pwm_export_pw2, sizeof(s_pwm_export_pw2));
+            unlock_and_zero_string(s_pwm_export_pw1);
+            unlock_and_zero_string(s_pwm_export_pw2);
             s_pwm_export_error.clear();
             ImGui::OpenPopup("Export PWM###pwm_export_modal");
         }
@@ -6330,15 +6326,13 @@ static void render_unlocked_screen()
 
                 const float fieldW = ImGui::GetContentRegionAvail().x;
 
-                ImGui::TextDisabled("Export Password");
                 ImGui::SetNextItemWidth(fieldW);
-                ImGui::InputText("##pwm_export_pw1", s_pwm_export_pw1, sizeof(s_pwm_export_pw1), ImGuiInputTextFlags_Password);
+                ui::InputTextPasswordReveal("File Password##pwm_export_pw1", &s_pwm_export_pw1);
 
                 ImGui::Dummy(ImVec2(0, 4));
 
-                ImGui::TextDisabled("Confirm Password");
                 ImGui::SetNextItemWidth(fieldW);
-                ImGui::InputText("##pwm_export_pw2", s_pwm_export_pw2, sizeof(s_pwm_export_pw2), ImGuiInputTextFlags_Password);
+                ui::InputTextPasswordReveal("Confirm Password##pwm_export_pw2", &s_pwm_export_pw2);
 
                 // Error message
                 if (!s_pwm_export_error.empty()) {
@@ -6356,10 +6350,10 @@ static void render_unlocked_screen()
                 float totalBtnW = btnW * 2 + 8.0f;
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + fieldW - totalBtnW);
 
-                if (ui::StyledButton("##pwm_exp_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed)
+                if (ui::StyledButtonLight("##pwm_exp_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed)
                 {
-                    sodium_memzero(s_pwm_export_pw1, sizeof(s_pwm_export_pw1));
-                    sodium_memzero(s_pwm_export_pw2, sizeof(s_pwm_export_pw2));
+                    unlock_and_zero_string(s_pwm_export_pw1);
+                    unlock_and_zero_string(s_pwm_export_pw2);
                     s_pwm_export_error.clear();
                     s_pwm_export_modal = false;
                     ImGui::CloseCurrentPopup();
@@ -6368,10 +6362,10 @@ static void render_unlocked_screen()
                 ImGui::SameLine(0, 8.0f);
 
                 bool can_submit = s_pwm_export_pw1[0] != '\0';
-                bool pw_match = (strcmp(s_pwm_export_pw1, s_pwm_export_pw2) == 0);
+                bool pw_match = (s_pwm_export_pw1 == s_pwm_export_pw2);
 
                 if (!can_submit) ImGui::BeginDisabled();
-                bool do_export = ui::StyledButton("##pwm_exp_go", "Export", ImVec2(btnW, btnH)) || (submit_shortcut && can_submit);
+                bool do_export = ui::StyledButtonLight("##pwm_exp_go", "Export", ImVec2(btnW, btnH)) || (submit_shortcut && can_submit);
                 if (!can_submit) ImGui::EndDisabled();
 
                 if (do_export && can_submit)
@@ -6383,8 +6377,8 @@ static void render_unlocked_screen()
                         if (!path.empty())
                         {
                             auto result = pwm_file::export_pwm(v.creds, std::string(s_pwm_export_pw1), path.c_str());
-                            sodium_memzero(s_pwm_export_pw1, sizeof(s_pwm_export_pw1));
-                            sodium_memzero(s_pwm_export_pw2, sizeof(s_pwm_export_pw2));
+                            unlock_and_zero_string(s_pwm_export_pw1);
+                            unlock_and_zero_string(s_pwm_export_pw2);
 
                             if (result.ok) {
                                 char msg[128];
@@ -6405,8 +6399,8 @@ static void render_unlocked_screen()
 
             if (!modal_open)
             {
-                sodium_memzero(s_pwm_export_pw1, sizeof(s_pwm_export_pw1));
-                sodium_memzero(s_pwm_export_pw2, sizeof(s_pwm_export_pw2));
+                unlock_and_zero_string(s_pwm_export_pw1);
+                unlock_and_zero_string(s_pwm_export_pw2);
                 s_pwm_export_error.clear();
                 s_pwm_export_modal = false;
             }
@@ -6423,7 +6417,7 @@ static void render_unlocked_screen()
             if (!s_pwm_import_path.empty())
             {
                 s_pwm_import_modal = true;
-                sodium_memzero(s_pwm_import_pw, sizeof(s_pwm_import_pw));
+                unlock_and_zero_string(s_pwm_import_pw);
                 s_pwm_import_error.clear();
                 ImGui::OpenPopup("Import PWM###pwm_import_modal");
             }
@@ -6456,9 +6450,8 @@ static void render_unlocked_screen()
 
                 const float fieldW = ImGui::GetContentRegionAvail().x;
 
-                ImGui::TextDisabled("Export Password");
                 ImGui::SetNextItemWidth(fieldW);
-                ImGui::InputText("##pwm_import_pw", s_pwm_import_pw, sizeof(s_pwm_import_pw), ImGuiInputTextFlags_Password);
+                ui::InputTextPasswordReveal("File Password##pwm_import_pw", &s_pwm_import_pw);
 
                 // Error message
                 if (!s_pwm_import_error.empty()) {
@@ -6476,9 +6469,9 @@ static void render_unlocked_screen()
                 float totalBtnW = btnW * 2 + 8.0f;
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + fieldW - totalBtnW);
 
-                if (ui::StyledButton("##pwm_imp_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed)
+                if (ui::StyledButtonLight("##pwm_imp_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed)
                 {
-                    sodium_memzero(s_pwm_import_pw, sizeof(s_pwm_import_pw));
+                    unlock_and_zero_string(s_pwm_import_pw);
                     s_pwm_import_error.clear();
                     s_pwm_import_path.clear();
                     s_pwm_import_modal = false;
@@ -6490,13 +6483,13 @@ static void render_unlocked_screen()
                 bool can_submit = s_pwm_import_pw[0] != '\0';
 
                 if (!can_submit) ImGui::BeginDisabled();
-                bool do_import = ui::StyledButton("##pwm_imp_go", "Import", ImVec2(btnW, btnH)) || (submit_shortcut && can_submit);
+                bool do_import = ui::StyledButtonLight("##pwm_imp_go", "Import", ImVec2(btnW, btnH)) || (submit_shortcut && can_submit);
                 if (!can_submit) ImGui::EndDisabled();
 
                 if (do_import && can_submit)
                 {
                     auto result = pwm_file::import_pwm(std::string(s_pwm_import_pw), s_pwm_import_path);
-                    sodium_memzero(s_pwm_import_pw, sizeof(s_pwm_import_pw));
+                    unlock_and_zero_string(s_pwm_import_pw);
 
                     if (result.ok)
                     {
@@ -6555,7 +6548,7 @@ static void render_unlocked_screen()
 
             if (!modal_open)
             {
-                sodium_memzero(s_pwm_import_pw, sizeof(s_pwm_import_pw));
+                unlock_and_zero_string(s_pwm_import_pw);
                 s_pwm_import_error.clear();
                 s_pwm_import_path.clear();
                 s_pwm_import_modal = false;
@@ -6571,8 +6564,8 @@ static void render_unlocked_screen()
     // ============================================================
     {
         static bool    s_kdbx_export_modal = false;
-        static char    s_kdbx_export_pw1[256] = {};
-        static char    s_kdbx_export_pw2[256] = {};
+        static std::string s_kdbx_export_pw1;
+        static std::string s_kdbx_export_pw2;
         static std::string s_kdbx_export_error;
 
         // --- Export intent ---
@@ -6580,8 +6573,8 @@ static void render_unlocked_screen()
         {
             g_shell.export_kdbx_clicked = false;
             s_kdbx_export_modal = true;
-            sodium_memzero(s_kdbx_export_pw1, sizeof(s_kdbx_export_pw1));
-            sodium_memzero(s_kdbx_export_pw2, sizeof(s_kdbx_export_pw2));
+            unlock_and_zero_string(s_kdbx_export_pw1);
+            unlock_and_zero_string(s_kdbx_export_pw2);
             s_kdbx_export_error.clear();
             ImGui::OpenPopup("Export KDBX###kdbx_export_modal");
         }
@@ -6613,15 +6606,13 @@ static void render_unlocked_screen()
 
                 const float fieldW = ImGui::GetContentRegionAvail().x;
 
-                ImGui::TextDisabled("Export Password");
                 ImGui::SetNextItemWidth(fieldW);
-                ImGui::InputText("##kdbx_export_pw1", s_kdbx_export_pw1, sizeof(s_kdbx_export_pw1), ImGuiInputTextFlags_Password);
+                ui::InputTextPasswordReveal("File Password##kdbx_export_pw1", &s_kdbx_export_pw1);
 
                 ImGui::Dummy(ImVec2(0, 4));
 
-                ImGui::TextDisabled("Confirm Password");
                 ImGui::SetNextItemWidth(fieldW);
-                ImGui::InputText("##kdbx_export_pw2", s_kdbx_export_pw2, sizeof(s_kdbx_export_pw2), ImGuiInputTextFlags_Password);
+                ui::InputTextPasswordReveal("Confirm Password##kdbx_export_pw2", &s_kdbx_export_pw2);
 
                 // Error message
                 if (!s_kdbx_export_error.empty()) {
@@ -6639,10 +6630,10 @@ static void render_unlocked_screen()
                 float totalBtnW = btnW * 2 + 8.0f;
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + fieldW - totalBtnW);
 
-                if (ui::StyledButton("##kdbx_exp_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed)
+                if (ui::StyledButtonLight("##kdbx_exp_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed)
                 {
-                    sodium_memzero(s_kdbx_export_pw1, sizeof(s_kdbx_export_pw1));
-                    sodium_memzero(s_kdbx_export_pw2, sizeof(s_kdbx_export_pw2));
+                    unlock_and_zero_string(s_kdbx_export_pw1);
+                    unlock_and_zero_string(s_kdbx_export_pw2);
                     s_kdbx_export_error.clear();
                     s_kdbx_export_modal = false;
                     ImGui::CloseCurrentPopup();
@@ -6651,10 +6642,10 @@ static void render_unlocked_screen()
                 ImGui::SameLine(0, 8.0f);
 
                 bool can_submit = s_kdbx_export_pw1[0] != '\0';
-                bool pw_match = (strcmp(s_kdbx_export_pw1, s_kdbx_export_pw2) == 0);
+                bool pw_match = (s_kdbx_export_pw1 == s_kdbx_export_pw2);
 
                 if (!can_submit) ImGui::BeginDisabled();
-                bool do_export = ui::StyledButton("##kdbx_exp_go", "Export", ImVec2(btnW, btnH)) || (submit_shortcut && can_submit);
+                bool do_export = ui::StyledButtonLight("##kdbx_exp_go", "Export", ImVec2(btnW, btnH)) || (submit_shortcut && can_submit);
                 if (!can_submit) ImGui::EndDisabled();
 
                 if (do_export && can_submit)
@@ -6666,8 +6657,8 @@ static void render_unlocked_screen()
                         if (!path.empty())
                         {
                             auto result = kdbx_export::export_kdbx(v.creds, std::string(s_kdbx_export_pw1), path.c_str());
-                            sodium_memzero(s_kdbx_export_pw1, sizeof(s_kdbx_export_pw1));
-                            sodium_memzero(s_kdbx_export_pw2, sizeof(s_kdbx_export_pw2));
+                            unlock_and_zero_string(s_kdbx_export_pw1);
+                            unlock_and_zero_string(s_kdbx_export_pw2);
 
                             if (result.ok) {
                                 char msg[128];
@@ -6688,8 +6679,8 @@ static void render_unlocked_screen()
 
             if (!modal_open)
             {
-                sodium_memzero(s_kdbx_export_pw1, sizeof(s_kdbx_export_pw1));
-                sodium_memzero(s_kdbx_export_pw2, sizeof(s_kdbx_export_pw2));
+                unlock_and_zero_string(s_kdbx_export_pw1);
+                unlock_and_zero_string(s_kdbx_export_pw2);
                 s_kdbx_export_error.clear();
                 s_kdbx_export_modal = false;
             }
@@ -6790,7 +6781,7 @@ static void render_unlocked_screen()
                 float fieldW = ImGui::GetContentRegionAvail().x;
                 ImGui::SetCursorPosX(ImGui::GetCursorPosX() + fieldW - totalBtnW);
 
-                if (ui::StyledButton("##csv_imp_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed)
+                if (ui::StyledButtonLight("##csv_imp_cancel", "Cancel", ImVec2(btnW, btnH)) || escape_pressed)
                 {
                     // Clear parsed Credential passwords
                     for (auto& c : s_csv_result.creds)
@@ -6804,7 +6795,7 @@ static void render_unlocked_screen()
                 ImGui::SameLine(0, 8.0f);
 
                 if (!has_creds || has_error) ImGui::BeginDisabled();
-                bool do_import = ui::StyledButton("##csv_imp_go", "Import", ImVec2(btnW, btnH)) || (submit_shortcut && has_creds && !has_error);
+                bool do_import = ui::StyledButtonLight("##csv_imp_go", "Import", ImVec2(btnW, btnH)) || (submit_shortcut && has_creds && !has_error);
                 if (!has_creds || has_error) ImGui::EndDisabled();
 
                 if (do_import && has_creds && !has_error)
@@ -7540,7 +7531,7 @@ static void render_unlocked_screen()
             {
                 float closeSize = ImGui::GetFrameHeight();
                 ImGui::SameLine(ImGui::GetWindowContentRegionMax().x - closeSize);
-                if (ui::StyledButton("##share_close", ICON_MDI_CLOSE, ImVec2(closeSize, closeSize)) || escape_pressed)
+                if (ui::StyledButtonLight("##share_close", ICON_MDI_CLOSE, ImVec2(closeSize, closeSize)) || escape_pressed)
                 {
                     ui::ReleaseShareQRTexture();
                     g_anon_share.Reset();
@@ -7581,7 +7572,7 @@ static void render_unlocked_screen()
 
                 ImGui::Dummy(ImVec2(0, 8));
 
-                if (ui::StyledButton("##create_share_link", ICON_MDI_SHARE_VARIANT " Create Link", ImVec2(-1, 32), 4.0f))
+                if (ui::StyledButtonLight("##create_share_link", ICON_MDI_SHARE_VARIANT " Create Link", ImVec2(-1, 32), 4.0f))
                 {
                     g_anon_share.step = AnonShareModal::Step::Creating;
                     g_anon_share.creating = true;
@@ -7617,7 +7608,7 @@ static void render_unlocked_screen()
 
                 ImGui::Dummy(ImVec2(0, 8));
 
-                if (ui::StyledButton("##copy_share_url", ICON_MDI_CONTENT_COPY " Copy URL", ImVec2(-1, 30), 4.0f))
+                if (ui::StyledButtonLight("##copy_share_url", ICON_MDI_CONTENT_COPY " Copy URL", ImVec2(-1, 30), 4.0f))
                 {
                     ImGui::SetClipboardText(g_anon_share.share_url.c_str());
                     ui::ShowToast("Share URL copied!", ui::ToastType::Success);
@@ -7648,7 +7639,7 @@ static void render_unlocked_screen()
                 ImGui::TextWrapped("%s", g_anon_share.error_msg.c_str());
                 ImGui::Dummy(ImVec2(0, 8));
 
-                if (ui::StyledButton("##retry_share", ICON_MDI_REFRESH " Try Again", ImVec2(-1, 30), 4.0f))
+                if (ui::StyledButtonLight("##retry_share", ICON_MDI_REFRESH " Try Again", ImVec2(-1, 30), 4.0f))
                 {
                     g_anon_share.step = AnonShareModal::Step::Config;
                     g_anon_share.error_msg.clear();
@@ -7933,7 +7924,7 @@ static void render_unlocked_screen()
             bool can_delete = (strcmp(s_confirm_buf, "DELETE") == 0);
 
             if (!can_delete) ImGui::BeginDisabled();
-            if (ui::StyledButton("##del_vault_go", "Delete Vault", ImVec2(-1, 36)))
+            if (ui::StyledButtonLight("##del_vault_go", "Delete Vault", ImVec2(-1, 36)))
             {
                 g_shell.delete_vault_confirmed = true;
                 g_shell.delete_vault_confirming = false;
@@ -7943,7 +7934,7 @@ static void render_unlocked_screen()
             if (!can_delete) ImGui::EndDisabled();
 
             ImGui::Spacing();
-            if (ui::StyledButton("##del_vault_cancel", "Cancel", ImVec2(-1, 30)))
+            if (ui::StyledButtonLight("##del_vault_cancel", "Cancel", ImVec2(-1, 30)))
             {
                 g_shell.delete_vault_confirming = false;
                 s_confirm_buf[0] = '\0';
