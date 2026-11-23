@@ -4,8 +4,10 @@
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #include <string>
 #include "app_internal.h"
+#include "utility_stub.h"
 
-static std::string RunOpenPanel(const char* title, NSArray<NSString*>* extensions, bool canCreateDirs = false)
+static std::string RunOpenPanel(const char* title, NSArray<NSString*>* extensions, bool canCreateDirs = false,
+                                const std::string& initialDir = std::string())
 {
     __block std::string result;
 
@@ -17,6 +19,8 @@ static std::string RunOpenPanel(const char* title, NSArray<NSString*>* extension
         panel.canChooseDirectories = NO;
         panel.allowsMultipleSelection = NO;
         panel.canCreateDirectories = canCreateDirs;
+        if (!initialDir.empty())
+            panel.directoryURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:initialDir.c_str()] isDirectory:YES];
 
         if (extensions) {
             NSMutableArray<UTType*>* types = [NSMutableArray array];
@@ -118,5 +122,6 @@ std::string PickOpenFilePath_CSV()
 
 std::string PickOpenFilePath_Backup()
 {
-    return RunOpenPanel("Select Backup File", @[@"lbdb"]);
+    // Start in the app's Backups folder rather than wherever the last panel was.
+    return RunOpenPanel("Select Backup File", @[@"lbdb"], false, helpers::GetDefaultBackupDir());
 }

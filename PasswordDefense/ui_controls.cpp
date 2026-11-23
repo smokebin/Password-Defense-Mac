@@ -1530,7 +1530,7 @@ namespace ui
             // (The standalone "Actions" card was removed; its Create Backup row
             // was moved here to match Windows. Refresh List was dropped — the
             // file list refreshes itself on render.)
-            BeginCategoryCard("Local Backup Files", "Select a backup to restore");
+            BeginCategoryCard("Local Backup Files", "Create or restore local backups");
 
             // Manual backup row (moved from the removed "Actions" card)
             {
@@ -2066,7 +2066,7 @@ namespace ui
                 // Left icon
                 float iconX = rowMin.x + padX;
                 ImVec2 iconSz = ImGui::CalcTextSize(ICON_MDI_FORMAT_SIZE);
-                dl->AddText(ImVec2(iconX, cy - iconSz.y * 0.5f), ImGui::GetColorU32(ImGuiCol_TextDisabled), ICON_MDI_FORMAT_SIZE);
+                dl->AddText(ImVec2(iconX, cy - iconSz.y * 0.5f), ImGui::GetColorU32(ImGuiCol_Text), ICON_MDI_FORMAT_SIZE);
 
                 // Title + subtitle (subtitle shows current multiplier)
                 float textX = iconX + iconSz.x + 10.0f;
