@@ -796,6 +796,31 @@ namespace vault_db {
         return slug;
     }
 
+    std::string read_sync_state_from_file(const std::string& db_path, const std::string& key)
+    {
+        sqlite3* temp_db = nullptr;
+        int rc = sqlite3_open_v2(db_path.c_str(), &temp_db, SQLITE_OPEN_READONLY, nullptr);
+        if (rc != SQLITE_OK || !temp_db) {
+            if (temp_db) sqlite3_close(temp_db);
+            return "";
+        }
+
+        std::string value;
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql = "SELECT value FROM pm_sync_state WHERE key = ?";
+        if (sqlite3_prepare_v2(temp_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+            sqlite3_bind_text(stmt, 1, key.c_str(), -1, SQLITE_TRANSIENT);
+            if (sqlite3_step(stmt) == SQLITE_ROW) {
+                const char* val = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+                if (val) value = val;
+            }
+            sqlite3_finalize(stmt);
+        }
+
+        sqlite3_close(temp_db);
+        return value;
+    }
+
     // ----------------------------
     // Transaction helpers
     // ----------------------------

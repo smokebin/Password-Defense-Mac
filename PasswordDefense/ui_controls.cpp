@@ -2315,6 +2315,39 @@ namespace ui
                 }
             }
 
+            // Touch ID unlock row. The app owns the real state (Keychain);
+            // the toggle only raises an intent, so mirror the state each frame.
+            {
+                DrawRowDivider();
+
+                static bool s_touchid_toggle = false;
+                s_touchid_toggle = s.touchid_enabled;
+
+                const char* subtitle =
+                    !s.touchid_available ? "Touch ID isn't available on this Mac" :
+                    s.touchid_busy       ? "Waiting for Touch ID..." :
+                    s.touchid_enabled || s.touchid_can_enable
+                                         ? "Unlock this vault with your fingerprint"
+                                         : "Unlock with your master password to turn this on";
+
+                SettingRowSpec row{};
+                row.id = ImGui::GetID("touchid_unlock");
+                row.title = "Touch ID";
+                row.subtitle = subtitle;
+                row.leftIcon = ICON_MDI_FINGERPRINT;
+                row.rightType = SettingRightType::Toggle;
+                row.toggleValue = &s_touchid_toggle;
+                // Turning it off is always allowed; turning it on needs the password.
+                row.enabled = s.touchid_available && !s.touchid_busy &&
+                              (s.touchid_enabled || s.touchid_can_enable);
+
+                auto result = RenderSettingRow(row, &g_settings_selected_row, 54.0f);
+                if (result.action_used && row.enabled)
+                {
+                    s.touchid_toggle_clicked = true;
+                }
+            }
+
             EndCategoryCard();
 
             // ---- Vault Two-Factor Authentication Card ----

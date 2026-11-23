@@ -17,6 +17,8 @@
 		04D48F502F6282A2004C61CC /* GameController.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 04D48F4F2F6282A2004C61CC /* GameController.framework */; };
 		04D48F522F6282AB004C61CC /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 04D48F512F6282AB004C61CC /* MetalKit.framework */; };
 		04D48F542F6282BA004C61CC /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 04D48F532F6282BA004C61CC /* QuartzCore.framework */; };
+		7A1D0E015F3C4B2A00C0FFEE /* LocalAuthentication.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A1D0E025F3C4B2A00C0FFEE /* LocalAuthentication.framework */; };
+		7A1D0E035F3C4B2A00C0FFEE /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7A1D0E045F3C4B2A00C0FFEE /* Security.framework */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -45,6 +47,8 @@
 		04D48F4F2F6282A2004C61CC /* GameController.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = GameController.framework; path = System/Library/Frameworks/GameController.framework; sourceTree = SDKROOT; };
 		04D48F512F6282AB004C61CC /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		04D48F532F6282BA004C61CC /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
+		7A1D0E025F3C4B2A00C0FFEE /* LocalAuthentication.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = LocalAuthentication.framework; path = System/Library/Frameworks/LocalAuthentication.framework; sourceTree = SDKROOT; };
+		7A1D0E045F3C4B2A00C0FFEE /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -82,6 +86,8 @@
 				044E920C2F639E1A00793810 /* libsodium.26.dylib in Frameworks */,
 				044E91732F639C3A00793810 /* libsqlite3.tbd in Frameworks */,
 				04D48F542F6282BA004C61CC /* QuartzCore.framework in Frameworks */,
+				7A1D0E015F3C4B2A00C0FFEE /* LocalAuthentication.framework in Frameworks */,
+				7A1D0E035F3C4B2A00C0FFEE /* Security.framework in Frameworks */,
 				04D48F522F6282AB004C61CC /* MetalKit.framework in Frameworks */,
 				04D48F502F6282A2004C61CC /* GameController.framework in Frameworks */,
 				04D48F4E2F62829B004C61CC /* Metal.framework in Frameworks */,
@@ -181,6 +187,8 @@
 				044E91F32F639D8C00793810 /* libsodium.26.dylib */,
 				044E91722F639C3A00793810 /* libsqlite3.tbd */,
 				04D48F532F6282BA004C61CC /* QuartzCore.framework */,
+				7A1D0E025F3C4B2A00C0FFEE /* LocalAuthentication.framework */,
+				7A1D0E045F3C4B2A00C0FFEE /* Security.framework */,
 				04D48F512F6282AB004C61CC /* MetalKit.framework */,
 				04D48F4F2F6282A2004C61CC /* GameController.framework */,
 				04D48F4D2F62829B004C61CC /* Metal.framework */,

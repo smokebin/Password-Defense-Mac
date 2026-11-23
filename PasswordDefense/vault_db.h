@@ -178,6 +178,9 @@ namespace vault_db {
     // Opens a temporary read-only connection, reads pm_sync_state, closes it
     std::string read_vault_slug_from_file(const std::string& db_path);
 
+    // Same, for any pm_sync_state key ("" if missing or unreadable).
+    std::string read_sync_state_from_file(const std::string& db_path, const std::string& key);
+
     // ----------------------------
     // Transaction helpers
     // ----------------------------
