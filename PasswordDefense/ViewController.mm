@@ -57,6 +57,7 @@
 
     // Initialize config (paths, settings) — must be before GUIInit
     cfg::init();
+    cfg::register_self_destruct_handler();   // Settings → Self-Destruct runs at exit
     favicon::Init((__bridge void*)_device);
 
     // Initialize fonts, styles, and theme (from GUI.mm)

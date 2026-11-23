@@ -15,6 +15,11 @@
 
 #include "utility_stub.h"
 #ifdef __APPLE__
+#include <CoreFoundation/CoreFoundation.h>
+#include <spawn.h>
+#include <sqlite3.h>
+#include <vector>
+extern char** environ;
 #include <mach-o/dyld.h>
 #include <unistd.h>
 #include <limits.h>
@@ -980,52 +985,150 @@ namespace cfg {
 		return true;
 	}
 
+#ifdef __APPLE__
+	// One pm_sync_state value from a vault file, through its own read-only handle
+	// (vault_db is a single global connection). "" if absent or not a vault.
+	static std::string read_vault_state(const std::string& db_path, const char* key)
+	{
+		sqlite3* db = nullptr;
+		if (sqlite3_open_v2(db_path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+			if (db) sqlite3_close(db);
+			return {};
+		}
+		std::string value;
+		sqlite3_stmt* st = nullptr;
+		if (sqlite3_prepare_v2(db, "SELECT value FROM pm_sync_state WHERE key = ?", -1, &st, nullptr) == SQLITE_OK) {
+			sqlite3_bind_text(st, 1, key, -1, SQLITE_TRANSIENT);
+			if (sqlite3_step(st) == SQLITE_ROW) {
+				const char* s = reinterpret_cast<const char*>(sqlite3_column_text(st, 0));
+				if (s) value = s;
+			}
+			sqlite3_finalize(st);
+		}
+		sqlite3_close(db);
+		return value;
+	}
+
+	static bool is_password_defense_vault(const std::string& db_path)
+	{
+		sqlite3* db = nullptr;
+		if (sqlite3_open_v2(db_path.c_str(), &db, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+			if (db) sqlite3_close(db);
+			return false;
+		}
+		bool ok = false;
+		sqlite3_stmt* st = nullptr;
+		const char* sql = "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'pm_credentials'";
+		if (sqlite3_prepare_v2(db, sql, -1, &st, nullptr) == SQLITE_OK) {
+			ok = (sqlite3_step(st) == SQLITE_ROW);
+			sqlite3_finalize(st);
+		}
+		sqlite3_close(db);
+		return ok;
+	}
+
+	// "Everything" destroys the vaults in the app's data folder. Vaults the user
+	// keeps elsewhere (iCloud Drive, Documents) are left alone, as on Windows.
+	static std::vector<std::string> collect_vaults_to_destroy()
+	{
+		namespace fs = std::filesystem;
+		std::vector<std::string> out;
+		if (exe_path.empty()) return out;
+		std::error_code ec;
+		for (fs::directory_iterator it(exe_path, ec), end; !ec && it != end; it.increment(ec)) {
+			std::error_code fe;
+			if (!it->is_regular_file(fe) || it->path().extension() != ".db") continue;
+			if (is_password_defense_vault(it->path().string()))
+				out.push_back(it->path().string());
+		}
+		return out;
+	}
+
+	static std::string main_bundle_path()
+	{
+		std::string path;
+		if (CFBundleRef bundle = CFBundleGetMainBundle()) {
+			if (CFURLRef url = CFBundleCopyBundleURL(bundle)) {
+				char buf[PATH_MAX];
+				if (CFURLGetFileSystemRepresentation(url, true, (UInt8*)buf, sizeof(buf))) path = buf;
+				CFRelease(url);
+			}
+		}
+		if (path.size() < 5 || path.compare(path.size() - 4, 4, ".app") != 0) return {};
+		return path;
+	}
+
+	// Everything the chosen mode deletes, as absolute paths.
+	static std::vector<std::string> collect_self_destruct_targets(int mode)
+	{
+		namespace fs = std::filesystem;
+		std::vector<std::string> targets;
+		std::error_code ec;
+		auto add = [&](const std::string& p) {
+			if (p.size() > 1 && p[0] == '/' && fs::exists(p, ec)) targets.push_back(p);
+		};
+
+		add(main_bundle_path());
+		if (mode >= 2) add(cfg_path);
+		if (mode >= 3) {
+			// Recovery snapshots hold vault contents; favicons list the user's sites.
+			const std::string rec_dir = get_recovery_directory_path();
+			if (rec_dir.size() > exe_path.size() + 1 && rec_dir.rfind(exe_path + "/", 0) == 0)
+				add(rec_dir);
+			add(exe_path + "/Favicons");
+
+			const std::string backup_dir = helpers::GetDefaultBackupDir();
+			for (const auto& v : collect_vaults_to_destroy()) {
+				add(v);
+				for (const char* side : { "-wal", "-shm", "-journal" })
+					add(v + side);
+
+				// Backups of a destroyed vault must not outlive it ("<vault>_TAG_time.lbdb").
+				const std::string prefix = fs::path(v).stem().string() + "_";
+				for (fs::directory_iterator it(backup_dir, ec), end; !ec && it != end; it.increment(ec)) {
+					const std::string name = it->path().filename().string();
+					if (it->path().extension() == ".lbdb" && name.rfind(prefix, 0) == 0)
+						add(it->path().string());
+				}
+			}
+		}
+		return targets;
+	}
+
+	static void macos_self_destruct(int mode)
+	{
+		std::vector<std::string> targets = collect_self_destruct_targets(mode);
+		if (targets.empty()) return;
+
+		// Deferred so this process (and its open SQLite handles) is gone first. Paths
+		// are passed as arguments, never spliced into the script, so no quoting issues.
+		std::vector<std::string> args = { "/bin/sh", "-c", "sleep 2; exec /bin/rm -rf -- \"$@\"", "pd-self-destruct" };
+		args.insert(args.end(), targets.begin(), targets.end());
+		std::vector<char*> argv;
+		for (auto& a : args) argv.push_back(a.data());
+		argv.push_back(nullptr);
+
+		posix_spawnattr_t attr;
+		posix_spawnattr_init(&attr);
+		posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETSID);
+		pid_t pid = 0;
+		posix_spawn(&pid, "/bin/sh", nullptr, &attr, argv.data(), environ);
+		posix_spawnattr_destroy(&attr);
+	}
+#endif
+
 	static void self_destruct_atexit_handler()
 	{
 		int mode = get_self_destruct_mode();
 		if (mode <= 0 || mode > 3) return;
+#ifdef __APPLE__
+		macos_self_destruct(mode);
+#else
 		if (exe_full_path.empty()) return;
 		if (!is_safe_path(exe_full_path)) return;
 		if (mode >= 2 && !cfg_path.empty() && !is_safe_path(cfg_path)) return;
 		if (mode >= 3 && !exe_path.empty() && !is_safe_path(exe_path)) return;
 
-#ifdef __APPLE__
-		// macOS: use rm via fork/exec after a short delay
-		std::string cmd = "sleep 2";
-		cmd += " && rm -f \"" + exe_full_path + "\"";
-		if (mode >= 2 && !cfg_path.empty())
-			cmd += " && rm -f \"" + cfg_path + "\"";
-		if (mode >= 3 && !exe_path.empty())
-			cmd += " && rm -f \"" + exe_path + "\"/*.db";
-
-		// Mode-3 recovery-dir cleanup (fixed-bug invariant #3 from pw-windows v1.0.2):
-		// hoisted out of any per-vault loop, length-guarded, and runs unconditionally
-		// once. Recovery snapshots carry decrypted-under-master-key credential
-		// contents, so a full self-destruct must erase them too — else a snapshot
-		// written in the final session before self-destruct would survive on disk.
-		//
-		// Length guard: require the path to be under exe_path (the app's own data
-		// dir) and non-trivially long. Prevents a mis-set recovery path from
-		// nuking something unrelated via rm -rf.
-		if (mode >= 3) {
-			std::string rec_dir = get_recovery_directory_path();
-			if (!rec_dir.empty()
-			    && is_safe_path(rec_dir)
-			    && rec_dir.size() > 16
-			    && !exe_path.empty()
-			    && rec_dir.rfind(exe_path, 0) == 0)
-			{
-				cmd += " && rm -rf \"" + rec_dir + "\"";
-			}
-		}
-
-		pid_t pid = fork();
-		if (pid == 0) {
-			setsid();
-			execl("/bin/sh", "sh", "-c", cmd.c_str(), (char*)nullptr);
-			_exit(1);
-		}
-#else
 		std::string cmd = "ping 127.0.0.1 -n 2 >nul";
 		cmd += " & del /f /q \"" + exe_full_path + "\"";
 		if (mode >= 2 && !cfg_path.empty())
